@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
@@ -943,12 +944,16 @@ func GetRootUser() (user *User) {
 }
 
 func UpdateUserUsedQuotaAndRequestCount(id int, quota int) {
+	// 应用用户使用量比例
+	usageRatio := operation_setting.GetQuotaUsageRatio()
+	adjustedQuota := int(float64(quota) * usageRatio)
+	
 	if common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUsedQuota, id, quota)
+		addNewRecord(BatchUpdateTypeUsedQuota, id, adjustedQuota)
 		addNewRecord(BatchUpdateTypeRequestCount, id, 1)
 		return
 	}
-	updateUserUsedQuotaAndRequestCount(id, quota, 1)
+	updateUserUsedQuotaAndRequestCount(id, adjustedQuota, 1)
 }
 
 func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {

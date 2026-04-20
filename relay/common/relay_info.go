@@ -673,6 +673,7 @@ type TaskSubmitReq struct {
 	Mode           string                 `json:"mode,omitempty"`
 	Image          string                 `json:"image,omitempty"`
 	Images         []string               `json:"images,omitempty"`
+	Videos         []string               `json:"videos,omitempty"`
 	Size           string                 `json:"size,omitempty"`
 	Duration       int                    `json:"duration,omitempty"`
 	Seconds        string                 `json:"seconds,omitempty"`
@@ -686,6 +687,10 @@ func (t *TaskSubmitReq) GetPrompt() string {
 
 func (t *TaskSubmitReq) HasImage() bool {
 	return len(t.Images) > 0
+}
+
+func (t *TaskSubmitReq) HasVideo() bool {
+	return len(t.Videos) > 0
 }
 
 func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {

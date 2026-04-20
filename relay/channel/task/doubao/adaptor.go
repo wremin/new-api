@@ -285,6 +285,18 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		}
 	}
 
+	// Add videos if present
+	if req.HasVideo() {
+		for _, videoURL := range req.Videos {
+			r.Content = append(r.Content, ContentItem{
+				Type: "video_url",
+				VideoURL: &MediaURL{
+					URL: videoURL,
+				},
+			})
+		}
+	}
+
 	metadata := req.Metadata
 	if err := taskcommon.UnmarshalMetadata(metadata, &r); err != nil {
 		return nil, errors.Wrap(err, "unmarshal metadata failed")

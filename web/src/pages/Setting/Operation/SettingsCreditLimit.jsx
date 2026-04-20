@@ -37,6 +37,7 @@ export default function SettingsCreditLimit(props) {
     QuotaForInviter: '',
     QuotaForInvitee: '',
     'quota_setting.enable_free_model_pre_consume': true,
+    'quota_usage_ratio_setting.usage_ratio': 1.0,
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -179,6 +180,27 @@ export default function SettingsCreditLimit(props) {
                     setInputs({
                       ...inputs,
                       'quota_setting.enable_free_model_pre_consume': value,
+                    })
+                  }
+                />
+              </Col>
+            </Row>
+            <Row>
+              <Col xs={24} sm={12} md={8} lg={8} xl={6}>
+                <Form.InputNumber
+                  label={t('用户使用量比例')}
+                  field={'quota_usage_ratio_setting.usage_ratio'}
+                  step={0.01}
+                  min={0.01}
+                  max={10}
+                  extraText={t(
+                    '调整用户实际使用额度的计算比例，默认 1.0（100%）。例如设置为 1.2 表示用户实际消耗额度 = 原始额度 × 1.2',
+                  )}
+                  placeholder={'1.0'}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      'quota_usage_ratio_setting.usage_ratio': value,
                     })
                   }
                 />

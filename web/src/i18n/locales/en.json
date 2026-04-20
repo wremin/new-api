@@ -3466,6 +3466,8 @@
     "额度提醒阈值": "Quota reminder threshold",
     "额度查询接口返回令牌额度而非用户额度": "Displays token quota instead of user quota",
     "额度设置": "Quota Settings",
+    "用户使用量比例": "User Usage Ratio",
+    "调整用户实际使用额度的计算比例，默认 1.0（100%）。例如设置为 1.2 表示用户实际消耗额度 = 原始额度 × 1.2": "Adjust the calculation ratio for actual user usage, default is 1.0 (100%). For example, setting it to 1.2 means actual consumed quota = original quota × 1.2",
     "额度重置": "Quota Reset",
     "额度预警阈值": "Quota warning threshold",
     "首尾生视频": "Head-tail generated video",

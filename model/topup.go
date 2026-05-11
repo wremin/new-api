@@ -110,6 +110,132 @@ func Recharge(referenceId string, customerId string) (err error) {
 	return nil
 }
 
+func RechargeByTradeNo(tradeNo string) (err error) {
+	if tradeNo == "" {
+		return errors.New("未提供支付单号")
+	}
+
+	var quotaToAdd int64
+	topUp := &TopUp{}
+
+	refCol := "`trade_no`"
+	if common.UsingPostgreSQL {
+		refCol = `"trade_no"`
+	}
+
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", tradeNo).First(topUp).Error
+		if err != nil {
+			return errors.New("充值订单不存在")
+		}
+
+		if topUp.PaymentMethod != "alipay" {
+			return ErrPaymentMethodMismatch
+		}
+
+		if topUp.Status == common.TopUpStatusSuccess {
+			return nil // 幂等：已成功直接返回
+		}
+
+		if topUp.Status != common.TopUpStatusPending {
+			return errors.New("充值订单状态错误")
+		}
+
+		dAmount := decimal.NewFromInt(topUp.Amount)
+		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+		quotaToAdd = dAmount.Mul(dQuotaPerUnit).IntPart()
+		if quotaToAdd <= 0 {
+			return errors.New("无效的充值额度")
+		}
+
+		topUp.CompleteTime = common.GetTimestamp()
+		topUp.Status = common.TopUpStatusSuccess
+		if err := tx.Save(topUp).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", gorm.Expr("quota + ?", quotaToAdd)).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		common.SysError("alipay topup failed: " + err.Error())
+		return errors.New("充值失败，请稍后重试")
+	}
+
+	if quotaToAdd > 0 {
+		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("支付宝充值成功，充值额度: %v，支付金额: %.2f", logger.FormatQuota(int(quotaToAdd)), topUp.Money))
+	}
+
+	return nil
+}
+
+func RechargeWechat(tradeNo string) (err error) {
+	if tradeNo == "" {
+		return errors.New("未提供支付单号")
+	}
+
+	var quotaToAdd int64
+	topUp := &TopUp{}
+
+	refCol := "`trade_no`"
+	if common.UsingPostgreSQL {
+		refCol = `"trade_no"`
+	}
+
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(refCol+" = ?", tradeNo).First(topUp).Error
+		if err != nil {
+			return errors.New("充值订单不存在")
+		}
+
+		if topUp.PaymentMethod != "wxpay" {
+			return ErrPaymentMethodMismatch
+		}
+
+		if topUp.Status == common.TopUpStatusSuccess {
+			return nil // 幂等：已成功直接返回
+		}
+
+		if topUp.Status != common.TopUpStatusPending {
+			return errors.New("充值订单状态错误")
+		}
+
+		dAmount := decimal.NewFromInt(topUp.Amount)
+		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+		quotaToAdd = dAmount.Mul(dQuotaPerUnit).IntPart()
+		if quotaToAdd <= 0 {
+			return errors.New("无效的充值额度")
+		}
+
+		topUp.CompleteTime = common.GetTimestamp()
+		topUp.Status = common.TopUpStatusSuccess
+		if err := tx.Save(topUp).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", gorm.Expr("quota + ?", quotaToAdd)).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		common.SysError("wechat pay topup failed: " + err.Error())
+		return errors.New("充值失败，请稍后重试")
+	}
+
+	if quotaToAdd > 0 {
+		RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("微信支付充值成功，充值额度: %v，支付金额: %.2f", logger.FormatQuota(int(quotaToAdd)), topUp.Money))
+	}
+
+	return nil
+}
+
 func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
 	// Start transaction
 	tx := DB.Begin()

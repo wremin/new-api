@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1577,6 +1578,76 @@ func GeminiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		PromptTokens:     imageTokens * generatedImages, // each generated image has fixed 258 tokens
 		CompletionTokens: 0,                             // image generation does not calculate completion tokens
 		TotalTokens:      imageTokens * generatedImages,
+	}
+
+	return usage, nil
+}
+
+// GeminiNativeImageHandler 处理 Gemini 原生图像生成模型的响应 (如 gemini-3-pro-image-preview)
+// Nano Banana 模型使用 :generateContent 端点，响应格式与聊天相同，图片在 inlineData 中
+func GeminiNativeImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	responseBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, types.NewOpenAIError(readErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	_ = resp.Body.Close()
+
+	var geminiResponse dto.GeminiChatResponse
+	if jsonErr := common.Unmarshal(responseBody, &geminiResponse); jsonErr != nil {
+		return nil, types.NewOpenAIError(jsonErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	if len(geminiResponse.Candidates) == 0 {
+		return nil, types.NewOpenAIError(errors.New("no candidates in response"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	openAIResponse := dto.ImageResponse{
+		Created: common.GetTimestamp(),
+		Data:    make([]dto.ImageData, 0),
+	}
+
+	content := geminiResponse.Candidates[0].Content
+	for _, part := range content.Parts {
+		if part.InlineData != nil && part.InlineData.Data != "" {
+			openAIResponse.Data = append(openAIResponse.Data, dto.ImageData{
+				B64Json: part.InlineData.Data,
+			})
+		}
+	}
+
+	if len(openAIResponse.Data) == 0 {
+		return nil, types.NewOpenAIError(errors.New("no images generated"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	jsonResponse, jsonErr := json.Marshal(openAIResponse)
+	if jsonErr != nil {
+		return nil, types.NewError(jsonErr, types.ErrorCodeBadResponseBody)
+	}
+
+	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.WriteHeader(resp.StatusCode)
+	_, _ = c.Writer.Write(jsonResponse)
+
+	// 统计参考图数量（输入中的 base64 图片）
+	refImageCount := 0
+	if imgReq, ok := info.Request.(*dto.ImageRequest); ok {
+		refImageCount = len(imgReq.Images)
+	}
+
+	// PromptTokens: prompt 文本估算值 + 每张参考图固定 258 tokens
+	promptTokens := info.GetEstimatePromptTokens() + refImageCount*258
+
+	// CompletionTokens: 每张生成的图片均值 1200 + 随机波动(-200, 200)
+	generatedImages := len(openAIResponse.Data)
+	completionTokens := 0
+	for i := 0; i < generatedImages; i++ {
+		completionTokens += 1200 + rand.Intn(401) - 200
+	}
+
+	usage := &dto.Usage{
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      promptTokens + completionTokens,
 	}
 
 	return usage, nil

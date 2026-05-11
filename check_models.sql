@@ -1,0 +1,1 @@
+SELECT * FROM models LIMIT 10;

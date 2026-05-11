@@ -58,6 +58,11 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
+	// 支持 Gemini 原生图像生成模型 (如 gemini-3-pro-image-preview, gemini-3.1-flash-image-preview)
+	if strings.HasPrefix(info.UpstreamModelName, "gemini-") && strings.Contains(info.UpstreamModelName, "image") {
+		return buildGeminiNativeImageRequest(request)
+	}
+
 	if !strings.HasPrefix(info.UpstreamModelName, "imagen") {
 		return nil, errors.New("not supported model for image generation, only imagen models are supported")
 	}
@@ -122,6 +127,70 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 
 	return geminiRequest, nil
 }
+
+func buildGeminiNativeImageRequest(request dto.ImageRequest) (*dto.GeminiChatRequest, error) {
+	parts := []dto.GeminiPart{}
+
+	// 处理参考图（base64 data URI 或纯 base64 字符串）
+	for _, img := range request.Images {
+		if img == "" {
+			continue
+		}
+		mimeType, b64Data, err := parseImageData(img)
+		if err != nil {
+			// 跳过无法解析的图片，继续处理
+			continue
+		}
+		parts = append(parts, dto.GeminiPart{
+			InlineData: &dto.GeminiInlineData{
+				MimeType: mimeType,
+				Data:     b64Data,
+			},
+		})
+	}
+
+	// prompt 放在参考图之后
+	parts = append(parts, dto.GeminiPart{Text: request.Prompt})
+
+	geminiRequest := &dto.GeminiChatRequest{
+		Contents: []dto.GeminiChatContent{
+			{
+				Parts: parts,
+			},
+		},
+		GenerationConfig: dto.GeminiChatGenerationConfig{
+			ResponseModalities: []string{"TEXT", "IMAGE"},
+		},
+	}
+	return geminiRequest, nil
+}
+
+// parseImageData 解析图片数据，支持 data URI 格式或纯 base64 字符串
+func parseImageData(img string) (mimeType string, b64Data string, err error) {
+	if strings.HasPrefix(img, "data:") {
+		// data URI 格式: data:image/jpeg;base64,/9j/4AAQ...
+		commaIdx := strings.Index(img, ",")
+		if commaIdx == -1 {
+			return "", "", errors.New("invalid data URI")
+		}
+		header := img[5:commaIdx] // 去掉 "data:" 前缀
+		b64Data = img[commaIdx+1:]
+		// 解析 mimeType
+		semiIdx := strings.Index(header, ";")
+		if semiIdx == -1 {
+			mimeType = header
+		} else {
+			mimeType = header[:semiIdx]
+		}
+		if mimeType == "" {
+			mimeType = "image/jpeg"
+		}
+		return mimeType, b64Data, nil
+	}
+	// 纯 base64 字符串，默认 image/jpeg
+	return "image/jpeg", img, nil
+}
+
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 
@@ -257,6 +326,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		} else {
 			return GeminiTextGenerationHandler(c, info, resp)
 		}
+	}
+
+	// 支持 Gemini 原生图像生成模型
+	if strings.HasPrefix(info.UpstreamModelName, "gemini-") && strings.Contains(info.UpstreamModelName, "image") {
+		return GeminiNativeImageHandler(c, info, resp)
 	}
 
 	if strings.HasPrefix(info.UpstreamModelName, "imagen") {

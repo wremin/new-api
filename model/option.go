@@ -106,6 +106,20 @@ func InitOptionMap() {
 	common.OptionMap["WaffoUnitPrice"] = strconv.FormatFloat(setting.WaffoUnitPrice, 'f', -1, 64)
 	common.OptionMap["WaffoMinTopUp"] = strconv.Itoa(setting.WaffoMinTopUp)
 	common.OptionMap["WaffoPayMethods"] = setting.WaffoPayMethods2JsonString()
+	common.OptionMap["AlipayEnabled"] = strconv.FormatBool(setting.AlipayEnabled)
+	common.OptionMap["AlipayAppID"] = setting.AlipayAppID
+	common.OptionMap["AlipayPrivateKey"] = setting.AlipayPrivateKey
+	common.OptionMap["AlipayPublicKey"] = setting.AlipayPublicKey
+	common.OptionMap["AlipayNotifyURL"] = setting.AlipayNotifyURL
+	common.OptionMap["AlipayReturnURL"] = setting.AlipayReturnURL
+	common.OptionMap["AlipayMinTopUp"] = strconv.Itoa(setting.AlipayMinTopUp)
+	common.OptionMap["WechatPayEnabled"] = strconv.FormatBool(setting.WechatPayEnabled)
+	common.OptionMap["WechatPayAppID"] = setting.WechatPayAppID
+	common.OptionMap["WechatPayMchID"] = setting.WechatPayMchID
+	common.OptionMap["WechatPayKey"] = setting.WechatPayKey
+	common.OptionMap["WechatPayNotifyURL"] = setting.WechatPayNotifyURL
+	common.OptionMap["WechatPayReturnURL"] = setting.WechatPayReturnURL
+	common.OptionMap["WechatPayMinTopUp"] = strconv.Itoa(setting.WechatPayMinTopUp)
 	common.OptionMap["TopupGroupRatio"] = common.TopupGroupRatio2JSONString()
 	common.OptionMap["Chats"] = setting.Chats2JsonString()
 	common.OptionMap["AutoGroups"] = setting.AutoGroups2JsonString()
@@ -407,6 +421,20 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.WaffoUnitPrice, _ = strconv.ParseFloat(value, 64)
 	case "WaffoMinTopUp":
 		setting.WaffoMinTopUp, _ = strconv.Atoi(value)
+	case "WechatPayEnabled":
+		setting.WechatPayEnabled = value == "true"
+	case "WechatPayAppID":
+		setting.WechatPayAppID = value
+	case "WechatPayMchID":
+		setting.WechatPayMchID = value
+	case "WechatPayKey":
+		setting.WechatPayKey = value
+	case "WechatPayNotifyURL":
+		setting.WechatPayNotifyURL = value
+	case "WechatPayReturnURL":
+		setting.WechatPayReturnURL = value
+	case "WechatPayMinTopUp":
+		setting.WechatPayMinTopUp, _ = strconv.Atoi(value)
 	case "TopupGroupRatio":
 		err = common.UpdateTopupGroupRatioByJSONString(value)
 	case "GitHubClientId":
@@ -511,6 +539,20 @@ func updateOptionMap(key string, value string) (err error) {
 		// WaffoPayMethods is read directly from OptionMap via setting.GetWaffoPayMethods().
 		// The value is already stored in OptionMap at the top of this function (line: common.OptionMap[key] = value).
 		// No additional in-memory variable to update.
+	case "AlipayEnabled":
+		setting.AlipayEnabled = value == "true"
+	case "AlipayAppID":
+		setting.AlipayAppID = value
+	case "AlipayPrivateKey":
+		setting.AlipayPrivateKey = value
+	case "AlipayPublicKey":
+		setting.AlipayPublicKey = value
+	case "AlipayNotifyURL":
+		setting.AlipayNotifyURL = value
+	case "AlipayReturnURL":
+		setting.AlipayReturnURL = value
+	case "AlipayMinTopUp":
+		setting.AlipayMinTopUp, _ = strconv.Atoi(value)
 	}
 	return err
 }

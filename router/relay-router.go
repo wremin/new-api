@@ -116,6 +116,15 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
 
+		// async image generation routes
+		httpRouter.POST("/async/images/generations", relay.SubmitAsyncImageTask)
+	}
+	// 查询路由不经过 Distribute() 中间件（不需要模型分发）
+	relayV1Router.GET("/async/images/tasks/:task_id", relay.FetchAsyncImageTask)
+	{
+		httpRouter := relayV1Router.Group("")
+		httpRouter.Use(middleware.Distribute())
+
 		// embedding related routes
 		httpRouter.POST("/embeddings", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatEmbedding)

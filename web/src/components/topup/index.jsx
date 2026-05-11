@@ -71,6 +71,12 @@ const TopUp = () => {
   const [creemOpen, setCreemOpen] = useState(false);
   const [selectedCreemProduct, setSelectedCreemProduct] = useState(null);
 
+  // 支付宝相关状态
+  const [enableAlipayTopUp, setEnableAlipayTopUp] = useState(false);
+
+  // 微信支付相关状态
+  const [enableWechatPayTopUp, setEnableWechatPayTopUp] = useState(false);
+
   // Waffo 相关状态
   const [enableWaffoTopUp, setEnableWaffoTopUp] = useState(false);
   const [waffoPayMethods, setWaffoPayMethods] = useState([]);
@@ -162,6 +168,16 @@ const TopUp = () => {
         showError(t('管理员未开启Stripe充值！'));
         return;
       }
+    } else if (payment === 'alipay') {
+      if (!enableAlipayTopUp) {
+        showError(t('管理员未开启支付宝充值！'));
+        return;
+      }
+    } else if (payment === 'wxpay') {
+      if (!enableWechatPayTopUp) {
+        showError(t('管理员未开启微信支付！'));
+        return;
+      }
     } else {
       if (!enableOnlineTopUp) {
         showError(t('管理员未开启在线充值！'));
@@ -216,6 +232,16 @@ const TopUp = () => {
           amount: parseInt(topUpCount),
           payment_method: 'stripe',
         });
+      } else if (payWay === 'alipay') {
+        // 支付宝支付请求
+        res = await API.post('/api/user/alipay/pay', {
+          amount: parseInt(topUpCount),
+        });
+      } else if (payWay === 'wxpay') {
+        // 微信支付请求
+        res = await API.post('/api/user/wechatpay/pay', {
+          amount: parseInt(topUpCount),
+        });
       } else {
         // 普通支付请求
         res = await API.post('/api/user/pay', {
@@ -230,6 +256,32 @@ const TopUp = () => {
           if (payWay === 'stripe') {
             // Stripe 支付回调处理
             window.open(data.pay_link, '_blank');
+          } else if (payWay === 'alipay') {
+            // 支付宝支付：直接打开支付链接
+            window.open(data.pay_url, '_blank');
+          } else if (payWay === 'wxpay') {
+            // 微信支付：直接打开支付链接（H5）或显示二维码（Native）
+            if (data.is_native) {
+              // Native支付：显示二维码
+              Modal.info({
+                title: t('微信扫码支付'),
+                content: (
+                  <div style={{ textAlign: 'center', padding: '20px' }}>
+                    <p>{t('请使用微信扫一扫完成支付')}</p>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.pay_url)}`}
+                      alt='WeChat Pay QR Code'
+                      style={{ marginTop: '10px' }}
+                    />
+                  </div>
+                ),
+                centered: true,
+                okText: t('已完成支付'),
+              });
+            } else {
+              // H5支付：直接跳转
+              window.open(data.pay_url, '_blank');
+            }
           } else {
             // 普通支付表单提交
             let params = data;
@@ -480,16 +532,24 @@ const TopUp = () => {
           setPayMethods(payMethods);
           const enableStripeTopUp = data.enable_stripe_topup || false;
           const enableOnlineTopUp = data.enable_online_topup || false;
+          const enableAlipayTopUp = data.enable_alipay_topup || false;
+          const enableWechatPayTopUp = data.enable_wechatpay_topup || false;
           const enableCreemTopUp = data.enable_creem_topup || false;
           const minTopUpValue = enableOnlineTopUp
             ? data.min_topup
             : enableStripeTopUp
               ? data.stripe_min_topup
-              : data.enable_waffo_topup
-                ? data.waffo_min_topup
-                : 1;
+              : enableAlipayTopUp
+                ? data.alipay_min_topup || 1
+                : enableWechatPayTopUp
+                  ? data.wechatpay_min_topup || 1
+                  : data.enable_waffo_topup
+                    ? data.waffo_min_topup
+                    : 1;
           setEnableOnlineTopUp(enableOnlineTopUp);
           setEnableStripeTopUp(enableStripeTopUp);
+          setEnableAlipayTopUp(enableAlipayTopUp);
+          setEnableWechatPayTopUp(enableWechatPayTopUp);
           setEnableCreemTopUp(enableCreemTopUp);
           const enableWaffoTopUp = data.enable_waffo_topup || false;
           setEnableWaffoTopUp(enableWaffoTopUp);
@@ -785,6 +845,8 @@ const TopUp = () => {
           t={t}
           enableOnlineTopUp={enableOnlineTopUp}
           enableStripeTopUp={enableStripeTopUp}
+          enableAlipayTopUp={enableAlipayTopUp}
+          enableWechatPayTopUp={enableWechatPayTopUp}
           enableCreemTopUp={enableCreemTopUp}
           creemProducts={creemProducts}
           creemPreTopUp={creemPreTopUp}

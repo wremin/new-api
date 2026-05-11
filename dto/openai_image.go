@@ -28,6 +28,7 @@ type ImageRequest struct {
 	PartialImages     json.RawMessage `json:"partial_images,omitempty"`
 	// Stream            bool            `json:"stream,omitempty"`
 	Watermark *bool `json:"watermark,omitempty"`
+	Images    []string `json:"images,omitempty"`
 	// zhipu 4v
 	WatermarkEnabled json.RawMessage `json:"watermark_enabled,omitempty"`
 	UserId           json.RawMessage `json:"user_id,omitempty"`

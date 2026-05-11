@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -41,28 +43,59 @@ type MediaURL struct {
 }
 
 type requestPayload struct {
-	Model                 string         `json:"model"`
-	Content               []ContentItem  `json:"content,omitempty"`
-	CallbackURL           string         `json:"callback_url,omitempty"`
-	ReturnLastFrame       *dto.BoolValue `json:"return_last_frame,omitempty"`
-	ServiceTier           string         `json:"service_tier,omitempty"`
-	ExecutionExpiresAfter *dto.IntValue  `json:"execution_expires_after,omitempty"`
-	GenerateAudio         *dto.BoolValue `json:"generate_audio,omitempty"`
-	Draft                 *dto.BoolValue `json:"draft,omitempty"`
+	Model                 string                 `json:"model"`
+	Prompt                string                 `json:"prompt,omitempty"`
+	Content               []ContentItem          `json:"content,omitempty"`
+	Metadata              map[string]interface{} `json:"metadata,omitempty"`
+	CallbackURL           string                 `json:"callback_url,omitempty"`
+	ReturnLastFrame       *dto.BoolValue         `json:"return_last_frame,omitempty"`
+	ServiceTier           string                 `json:"service_tier,omitempty"`
+	ExecutionExpiresAfter *dto.IntValue          `json:"execution_expires_after,omitempty"`
+	GenerateAudio         *dto.BoolValue         `json:"generate_audio,omitempty"`
+	Draft                 *dto.BoolValue         `json:"draft,omitempty"`
 	Tools                 []struct {
 		Type string `json:"type,omitempty"`
 	} `json:"tools,omitempty"`
-	Resolution  string         `json:"resolution,omitempty"`
-	Ratio       string         `json:"ratio,omitempty"`
-	Duration    *dto.IntValue  `json:"duration,omitempty"`
-	Frames      *dto.IntValue  `json:"frames,omitempty"`
-	Seed        *dto.IntValue  `json:"seed,omitempty"`
-	CameraFixed *dto.BoolValue `json:"camera_fixed,omitempty"`
-	Watermark   *dto.BoolValue `json:"watermark,omitempty"`
+	Resolution      string         `json:"resolution,omitempty"`
+	Ratio           string         `json:"ratio,omitempty"`
+	Duration        *dto.IntValue  `json:"duration,omitempty"`
+	Frames          *dto.IntValue  `json:"frames,omitempty"`
+	Seed            *dto.IntValue  `json:"seed,omitempty"`
+	CameraFixed     *dto.BoolValue `json:"camera_fixed,omitempty"`
+	Watermark       *dto.BoolValue `json:"watermark,omitempty"`
 }
 
 type responsePayload struct {
 	ID string `json:"id"` // task_id
+}
+
+// kkidc 响应结构体（OpenAI 兼容格式）
+type kkidcSubmitResponse struct {
+	TaskID    string `json:"task_id"`
+	Status    string `json:"status"`
+	Progress  int    `json:"progress"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+type kkidcTaskData struct {
+	ID         string `json:"task_id"`
+	Status     string `json:"status"`
+	ResultURL  string `json:"result_url"`
+	FailReason string `json:"fail_reason"`
+	Progress   string `json:"progress"`
+	Usage      struct {
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
+	Content struct {
+		VideoURL string `json:"video_url"`
+	} `json:"content"`
+}
+
+type kkidcQueryResponse struct {
+	Code    string        `json:"code"`
+	Message string        `json:"message"`
+	Data    kkidcTaskData `json:"data"`
 }
 
 type responseTask struct {
@@ -121,6 +154,10 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
+	// kkidc 使用 OpenAI 兼容路径 /v1/video/generations
+	if strings.Contains(a.baseURL, "kkidc") {
+		return fmt.Sprintf("%s/v1/video/generations", a.baseURL), nil
+	}
 	return fmt.Sprintf("%s/api/v3/contents/generations/tasks", a.baseURL), nil
 }
 
@@ -132,18 +169,57 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *r
 	return nil
 }
 
-// EstimateBilling 检测请求 metadata 中是否包含视频输入，返回视频折扣 OtherRatio。
+// EstimateBilling 根据请求参数计算 OtherRatios：视频输入折扣、时长倍率、分辨率倍率。
+// 后台应将模型价格设为 5秒 720p 的基准价，系统会自动乘以 seconds × size。
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return nil
 	}
+	ratios := make(map[string]float64)
+
+	// 1. 视频输入折扣（参考视频）
 	if hasVideoInMetadata(req.Metadata) {
 		if ratio, ok := GetVideoInputRatio(info.OriginModelName); ok {
-			return map[string]float64{"video_input": ratio}
+			ratios["video_input"] = ratio
 		}
 	}
-	return nil
+
+	// 2. 时长倍率：每 5 秒为一个单位，向上取整
+	seconds := 5 // 默认 5 秒
+	if req.Duration > 0 {
+		seconds = req.Duration
+	} else if s, _ := strconv.Atoi(req.Seconds); s > 0 {
+		seconds = s
+	} else if meta, ok := req.Metadata["seconds"].(string); ok {
+		if s, _ := strconv.Atoi(meta); s > 0 {
+			seconds = s
+		}
+	} else if meta, ok := req.Metadata["duration"].(float64); ok {
+		seconds = int(meta)
+	}
+	ratios["seconds"] = math.Max(1, math.Ceil(float64(seconds)/5))
+
+	// 3. 分辨率倍率
+	size := req.Size
+	if size == "" {
+		if meta, ok := req.Metadata["size"].(string); ok {
+			size = meta
+		}
+	}
+	ratios["size"] = 1.0
+	switch size {
+	case "480x480", "480x854", "854x480":
+		ratios["size"] = 0.5
+	case "1024x1024", "1024x576", "576x1024", "720x1280", "1280x720":
+		ratios["size"] = 1.0
+	case "1280x1280", "1920x1080", "1080x1920":
+		ratios["size"] = 1.5
+	case "2048x2048":
+		ratios["size"] = 2.0
+	}
+
+	return ratios
 }
 
 // hasVideoInMetadata 直接检查 metadata 的 content 数组是否包含 video_url 条目，
@@ -203,6 +279,33 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
+// extractUpstreamErrorMsg 尝试从各种上游错误格式中提取可读错误信息
+func extractUpstreamErrorMsg(body []byte) string {
+	var m map[string]interface{}
+	if err := common.Unmarshal(body, &m); err != nil {
+		return string(body)
+	}
+	// 优先 message
+	if msg, ok := m["message"].(string); ok && msg != "" {
+		return msg
+	}
+	// 其次 error.message
+	if errObj, ok := m["error"].(map[string]interface{}); ok {
+		if msg, ok := errObj["message"].(string); ok && msg != "" {
+			return msg
+		}
+	}
+	// 再试 msg
+	if msg, ok := m["msg"].(string); ok && msg != "" {
+		return msg
+	}
+	// 最后 code
+	if code, ok := m["code"].(string); ok && code != "" {
+		return code
+	}
+	return string(body)
+}
+
 // DoResponse handles upstream response, returns taskID etc.
 func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
 	responseBody, err := io.ReadAll(resp.Body)
@@ -212,26 +315,39 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	}
 	_ = resp.Body.Close()
 
-	// Parse Doubao response
+	// 上游返回非 2xx 时，直接透传错误
+	if resp.StatusCode >= 400 {
+		errMsg := extractUpstreamErrorMsg(responseBody)
+		taskErr = service.TaskErrorWrapper(fmt.Errorf("upstream error: %s", errMsg), "upstream_error", resp.StatusCode)
+		return
+	}
+
+	// Parse Doubao response（先尝试官方 Ark 格式）
 	var dResp responsePayload
-	if err := common.Unmarshal(responseBody, &dResp); err != nil {
-		taskErr = service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
-		return
+	if err := common.Unmarshal(responseBody, &dResp); err == nil && dResp.ID != "" {
+		ov := dto.NewOpenAIVideo()
+		ov.ID = info.PublicTaskID
+		ov.TaskID = info.PublicTaskID
+		ov.CreatedAt = time.Now().Unix()
+		ov.Model = info.OriginModelName
+		c.JSON(http.StatusOK, ov)
+		return dResp.ID, responseBody, nil
 	}
 
-	if dResp.ID == "" {
-		taskErr = service.TaskErrorWrapper(fmt.Errorf("task_id is empty"), "invalid_response", http.StatusInternalServerError)
-		return
+	// 再尝试 kkidc 格式
+	var kkidcResp kkidcSubmitResponse
+	if err := common.Unmarshal(responseBody, &kkidcResp); err == nil && kkidcResp.TaskID != "" {
+		ov := dto.NewOpenAIVideo()
+		ov.ID = info.PublicTaskID
+		ov.TaskID = info.PublicTaskID
+		ov.CreatedAt = time.Now().Unix()
+		ov.Model = info.OriginModelName
+		c.JSON(http.StatusOK, ov)
+		return kkidcResp.TaskID, responseBody, nil
 	}
 
-	ov := dto.NewOpenAIVideo()
-	ov.ID = info.PublicTaskID
-	ov.TaskID = info.PublicTaskID
-	ov.CreatedAt = time.Now().Unix()
-	ov.Model = info.OriginModelName
-
-	c.JSON(http.StatusOK, ov)
-	return dResp.ID, responseBody, nil
+	taskErr = service.TaskErrorWrapper(fmt.Errorf("task_id is empty, body: %s", string(responseBody)), "invalid_response", http.StatusInternalServerError)
+	return
 }
 
 // FetchTask fetch task status
@@ -241,7 +357,12 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("invalid task_id")
 	}
 
-	uri := fmt.Sprintf("%s/api/v3/contents/generations/tasks/%s", baseUrl, taskID)
+	var uri string
+	if strings.Contains(baseUrl, "kkidc") {
+		uri = fmt.Sprintf("%s/v1/video/generations/%s", baseUrl, taskID)
+	} else {
+		uri = fmt.Sprintf("%s/api/v3/contents/generations/tasks/%s", baseUrl, taskID)
+	}
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
@@ -268,32 +389,36 @@ func (a *TaskAdaptor) GetChannelName() string {
 }
 
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*requestPayload, error) {
+	isKKIDC := strings.Contains(a.baseURL, "kkidc")
+
 	r := requestPayload{
-		Model:   req.Model,
-		Content: []ContentItem{},
+		Model: req.Model,
 	}
 
-	// Add images if present
-	if req.HasImage() {
-		for _, imgURL := range req.Images {
-			r.Content = append(r.Content, ContentItem{
-				Type: "image_url",
-				ImageURL: &MediaURL{
-					URL: imgURL,
-				},
-			})
+	// 只有非 kkidc 才构建 content 数组（官方 Ark 格式）
+	if !isKKIDC {
+		r.Content = []ContentItem{}
+		// Add images if present
+		if req.HasImage() {
+			for _, imgURL := range req.Images {
+				r.Content = append(r.Content, ContentItem{
+					Type: "image_url",
+					ImageURL: &MediaURL{
+						URL: imgURL,
+					},
+				})
+			}
 		}
-	}
-
-	// Add videos if present
-	if req.HasVideo() {
-		for _, videoURL := range req.Videos {
-			r.Content = append(r.Content, ContentItem{
-				Type: "video_url",
-				VideoURL: &MediaURL{
-					URL: videoURL,
-				},
-			})
+		// Add videos if present
+		if req.HasVideo() {
+			for _, videoURL := range req.Videos {
+				r.Content = append(r.Content, ContentItem{
+					Type: "video_url",
+					VideoURL: &MediaURL{
+						URL: videoURL,
+					},
+				})
+			}
 		}
 	}
 
@@ -306,26 +431,67 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		r.Duration = lo.ToPtr(dto.IntValue(sec))
 	}
 
-	r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
-	r.Content = append(r.Content, ContentItem{
-		Type: "text",
-		Text: req.Prompt,
-	})
+	// 顶层 prompt（kkidc 需要）
+	r.Prompt = req.Prompt
+
+	// 官方 Ark 用 content 数组
+	if !isKKIDC {
+		r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
+		r.Content = append(r.Content, ContentItem{
+			Type: "text",
+			Text: req.Prompt,
+		})
+	}
+
+	// 兼容 kkidc 格式：metadata 中放 reference_* 和其他参数
+	meta := make(map[string]interface{})
+	// 先复制用户传入的 metadata
+	if metadata != nil {
+		for k, v := range metadata {
+			meta[k] = v
+		}
+	}
+	// 多模态资源（字符串数组）
+	if len(req.Images) > 0 {
+		meta["reference_images"] = req.Images
+	}
+	if len(req.Videos) > 0 {
+		meta["reference_videos"] = req.Videos
+	}
+	if len(req.Audios) > 0 {
+		meta["reference_audios"] = req.Audios
+	}
+	if req.Image != "" {
+		meta["first_frame_image"] = req.Image
+	}
+	if len(meta) > 0 {
+		r.Metadata = meta
+	}
 
 	return &r, nil
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+	// 先尝试官方 Ark 格式
 	resTask := responseTask{}
-	if err := common.Unmarshal(respBody, &resTask); err != nil {
-		return nil, errors.Wrap(err, "unmarshal task result failed")
+	if err := common.Unmarshal(respBody, &resTask); err == nil && resTask.ID != "" {
+		return parseArkTaskResult(&resTask)
 	}
 
+	// 再尝试 kkidc 格式
+	var kkidcResp kkidcQueryResponse
+	if err := common.Unmarshal(respBody, &kkidcResp); err == nil && kkidcResp.Code == "success" && kkidcResp.Data.ID != "" {
+		return parseKKIDCTaskResult(&kkidcResp.Data)
+	}
+
+	return nil, errors.New("unmarshal task result failed, unknown format")
+}
+
+func parseArkTaskResult(resTask *responseTask) (*relaycommon.TaskInfo, error) {
 	taskResult := relaycommon.TaskInfo{
 		Code: 0,
 	}
 
-	// Map Doubao status to internal status
 	switch resTask.Status {
 	case "pending", "queued":
 		taskResult.Status = model.TaskStatusQueued
@@ -337,7 +503,6 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusSuccess
 		taskResult.Progress = "100%"
 		taskResult.Url = resTask.Content.VideoURL
-		// 解析 usage 信息用于按倍率计费
 		taskResult.CompletionTokens = resTask.Usage.CompletionTokens
 		taskResult.TotalTokens = resTask.Usage.TotalTokens
 	case "failed":
@@ -345,7 +510,6 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Progress = "100%"
 		taskResult.Reason = resTask.Error.Message
 	default:
-		// Unknown status, treat as processing
 		taskResult.Status = model.TaskStatusInProgress
 		taskResult.Progress = "30%"
 	}
@@ -353,28 +517,84 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	return &taskResult, nil
 }
 
-func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error) {
-	var dResp responseTask
-	if err := common.Unmarshal(originTask.Data, &dResp); err != nil {
-		return nil, errors.Wrap(err, "unmarshal doubao task data failed")
+func parseKKIDCTaskResult(data *kkidcTaskData) (*relaycommon.TaskInfo, error) {
+	taskResult := relaycommon.TaskInfo{
+		Code: 0,
 	}
 
+	switch data.Status {
+	case "PENDING", "QUEUED":
+		taskResult.Status = model.TaskStatusQueued
+		taskResult.Progress = "10%"
+	case "IN_PROGRESS", "RUNNING":
+		taskResult.Status = model.TaskStatusInProgress
+		taskResult.Progress = "50%"
+	case "SUCCESS":
+		taskResult.Status = model.TaskStatusSuccess
+		taskResult.Progress = "100%"
+		if data.ResultURL != "" {
+			taskResult.Url = data.ResultURL
+		} else if data.Content.VideoURL != "" {
+			taskResult.Url = data.Content.VideoURL
+		}
+		taskResult.CompletionTokens = data.Usage.CompletionTokens
+		taskResult.TotalTokens = data.Usage.TotalTokens
+	case "FAILED", "FAILURE":
+		taskResult.Status = model.TaskStatusFailure
+		taskResult.Progress = "100%"
+		taskResult.Reason = data.FailReason
+	default:
+		taskResult.Status = model.TaskStatusInProgress
+		if data.Progress != "" {
+			taskResult.Progress = data.Progress
+		} else {
+			taskResult.Progress = "30%"
+		}
+	}
+
+	return &taskResult, nil
+}
+
+func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error) {
 	openAIVideo := dto.NewOpenAIVideo()
 	openAIVideo.ID = originTask.TaskID
 	openAIVideo.TaskID = originTask.TaskID
 	openAIVideo.Status = originTask.Status.ToVideoStatus()
 	openAIVideo.SetProgressStr(originTask.Progress)
-	openAIVideo.SetMetadata("url", dResp.Content.VideoURL)
 	openAIVideo.CreatedAt = originTask.CreatedAt
 	openAIVideo.CompletedAt = originTask.UpdatedAt
 	openAIVideo.Model = originTask.Properties.OriginModelName
 
-	if dResp.Status == "failed" {
-		openAIVideo.Error = &dto.OpenAIVideoError{
-			Message: dResp.Error.Message,
-			Code:    dResp.Error.Code,
+	// 先尝试官方 Ark 格式
+	var dResp responseTask
+	if err := common.Unmarshal(originTask.Data, &dResp); err == nil && dResp.ID != "" {
+		openAIVideo.SetMetadata("url", dResp.Content.VideoURL)
+		if dResp.Status == "failed" {
+			openAIVideo.Error = &dto.OpenAIVideoError{
+				Message: dResp.Error.Message,
+				Code:    dResp.Error.Code,
+			}
 		}
+		return common.Marshal(openAIVideo)
 	}
 
+	// 再尝试 kkidc 格式
+	var kkidcResp kkidcQueryResponse
+	if err := common.Unmarshal(originTask.Data, &kkidcResp); err == nil && kkidcResp.Code == "success" {
+		if kkidcResp.Data.ResultURL != "" {
+			openAIVideo.SetMetadata("url", kkidcResp.Data.ResultURL)
+		} else if kkidcResp.Data.Content.VideoURL != "" {
+			openAIVideo.SetMetadata("url", kkidcResp.Data.Content.VideoURL)
+		}
+		if kkidcResp.Data.Status == "FAILED" || kkidcResp.Data.Status == "FAILURE" {
+			openAIVideo.Error = &dto.OpenAIVideoError{
+				Message: kkidcResp.Data.FailReason,
+				Code:    "upstream_error",
+			}
+		}
+		return common.Marshal(openAIVideo)
+	}
+
+	// 兜底：如果都解析不了，至少返回基本结构
 	return common.Marshal(openAIVideo)
 }

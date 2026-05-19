@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/QuantumNous/new-api/dto"
@@ -198,6 +199,16 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
+	// Gemini image preview 模型在 Vertex AI 上只能通过 global endpoint 访问
+	// 自动将 regional endpoint (如 us-central1) 替换为 global
+	baseUrl := info.ChannelBaseUrl
+	if strings.Contains(info.UpstreamModelName, "image-preview") || strings.Contains(info.UpstreamModelName, "image-generation") {
+		// 替换 REGION-aiplatform.googleapis.com → aiplatform.googleapis.com
+		baseUrl = regexp.MustCompile(`https?://[a-z0-9-]+-aiplatform\.googleapis\.com`).ReplaceAllString(baseUrl, "https://aiplatform.googleapis.com")
+		// 替换 /locations/REGION/ → /locations/global/
+		baseUrl = regexp.MustCompile(`/locations/[a-z0-9-]+/`).ReplaceAllString(baseUrl, "/locations/global/")
+	}
+
 	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled &&
 		!model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) {
 		// 新增逻辑：处理 -thinking-<budget> 格式
@@ -216,7 +227,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	version := model_setting.GetGeminiVersionSetting(info.UpstreamModelName)
 
 	if strings.HasPrefix(info.UpstreamModelName, "imagen") {
-		return fmt.Sprintf("%s/%s/models/%s:predict", info.ChannelBaseUrl, version, info.UpstreamModelName), nil
+		return fmt.Sprintf("%s/%s/models/%s:predict", baseUrl, version, info.UpstreamModelName), nil
 	}
 
 	if strings.HasPrefix(info.UpstreamModelName, "text-embedding") ||
@@ -226,7 +237,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		if info.IsGeminiBatchEmbedding {
 			action = "batchEmbedContents"
 		}
-		return fmt.Sprintf("%s/%s/models/%s:%s", info.ChannelBaseUrl, version, info.UpstreamModelName, action), nil
+		return fmt.Sprintf("%s/%s/models/%s:%s", baseUrl, version, info.UpstreamModelName, action), nil
 	}
 
 	action := "generateContent"
@@ -236,7 +247,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			info.DisablePing = true
 		}
 	}
-	return fmt.Sprintf("%s/%s/models/%s:%s", info.ChannelBaseUrl, version, info.UpstreamModelName, action), nil
+	return fmt.Sprintf("%s/%s/models/%s:%s", baseUrl, version, info.UpstreamModelName, action), nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {

@@ -153,10 +153,38 @@ func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	// image_handler.go (default) or channel adaptors (actual count).
 	// Including n here caused double-counting for channels that also
 	// set OtherRatio("n") (e.g. Ali/Bailian).
+
+	imageSize := ""
+	if strings.HasPrefix(i.Model, "gemini-") && strings.Contains(i.Model, "image") {
+		// For Gemini imagen models: quality maps to imageSize
+		imageSize = "default"
+		switch i.Quality {
+		case "hd", "high", "2K":
+			imageSize = "2K"
+		case "standard", "medium", "low", "auto", "1K":
+			imageSize = "default"
+		}
+
+		// Check extra_body for explicit image_size override (e.g., 4K)
+		if extraBodyRaw, ok := i.Extra["extra_body"]; ok && len(extraBodyRaw) > 0 {
+			var extraBody map[string]interface{}
+			if err := common.Unmarshal(extraBodyRaw, &extraBody); err == nil {
+				if google, ok := extraBody["google"].(map[string]interface{}); ok {
+					if imageConfig, ok := google["image_config"].(map[string]interface{}); ok {
+						if size, ok := imageConfig["image_size"].(string); ok && size != "" {
+							imageSize = size
+						}
+					}
+				}
+			}
+		}
+	}
+
 	return &types.TokenCountMeta{
 		CombineText:     i.Prompt,
 		MaxTokens:       1584,
 		ImagePriceRatio: sizeRatio * qualityRatio,
+		ImageSize:       imageSize,
 	}
 }
 

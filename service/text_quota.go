@@ -269,6 +269,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 				quotaCalculateDecimal = quotaCalculateDecimal.Mul(decimal.NewFromFloat(otherRatio))
 			}
 		}
+
 		summary.Quota = int(quotaCalculateDecimal.Round(0).IntPart())
 	}
 
@@ -296,6 +297,33 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if usage == nil {
 		extraContent = append(extraContent, "上游无计费信息")
 	}
+
+	// 注：已禁用 usage_ratio 日志显示，因此不需要记录原始 tokens
+	// 记录原始 tokens（应用 usage_ratio 之前）
+	// originalPromptTokens := 0
+	// originalCompletionTokens := 0
+	// if originUsage != nil {
+	// 	originalPromptTokens = originUsage.PromptTokens
+	// 	originalCompletionTokens = originUsage.CompletionTokens
+	// }
+
+	// 获取 completionRatio 用于计算
+	completionRatio := relayInfo.PriceData.CompletionRatio
+
+	// 将 usage_ratio 应用到返回给客户的 Usage 中
+	// 这样客户看到的 tokens 已经包含了用户使用量比例
+	ApplyUsageRatioToUsage(usage, completionRatio)
+
+	// 如果应用了 usage_ratio，记录到日志中
+	// 注：已禁用，因为 tokens 已经在计费中体现，不需要额外显示
+	// usageRatio := operation_setting.GetQuotaUsageRatio()
+	// if usageRatio != 1.0 && originUsage != nil {
+	// 	extraContent = append(extraContent, fmt.Sprintf("用户使用量比例 %.2f (Tokens: %d→%d prompt, %d→%d completion)",
+	// 		usageRatio,
+	// 		originalPromptTokens, usage.PromptTokens,
+	// 		originalCompletionTokens, usage.CompletionTokens))
+	// }
+
 	if originUsage != nil {
 		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, usage, relayInfo.GetFinalRequestRelayFormat())
 	}

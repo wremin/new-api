@@ -46,6 +46,7 @@ export default function ModelRatioSettings(props) {
     CreateCacheRatio: '',
     CompletionRatio: '',
     ImageRatio: '',
+    ImageSizePrice: '',
     AudioRatio: '',
     AudioCompletionRatio: '',
     ExposeRatioEnabled: false,
@@ -268,6 +269,32 @@ export default function ModelRatioSettings(props) {
                 },
               ]}
               onChange={(value) => setInputs({ ...inputs, ImageRatio: value })}
+            />
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col xs={24} sm={16}>
+            <Form.TextArea
+              label={t('图片分辨率定价（按次计费）')}
+              extraText={t(
+                '按图片分辨率设置固定价格，键为模型名称，值为分辨率到价格的映射。优先级高于模型固定价格和图片倍率。',
+              )}
+              placeholder={t(
+                '为一个 JSON 文本，例如：{"gemini-3-pro-image-preview": {"default": 0.1973, "4K": 0.3548}}',
+              )}
+              field={'ImageSizePrice'}
+              autosize={{ minRows: 6, maxRows: 12 }}
+              trigger='blur'
+              stopValidateWithError
+              rules={[
+                {
+                  validator: (rule, value) => verifyJSON(value),
+                  message: '不是合法的 JSON 字符串',
+                },
+              ]}
+              onChange={(value) =>
+                setInputs({ ...inputs, ImageSizePrice: value })
+              }
             />
           </Col>
         </Row>

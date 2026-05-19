@@ -44,7 +44,16 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 	// 计算使用量（基于 UsageMetadata）
 	usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
 
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	// 应用 usage_ratio 到返回给客户端的 Gemini 响应中
+	applyUsageRatioToGeminiResponse(&geminiResponse, info.UpstreamModelName)
+
+	// 重新序列化修改后的响应
+	modifiedResponseBody, marshalErr := common.Marshal(geminiResponse)
+	if marshalErr != nil {
+		return nil, types.NewOpenAIError(marshalErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	service.IOCopyBytesGracefully(c, resp, modifiedResponseBody)
 
 	return &usage, nil
 }

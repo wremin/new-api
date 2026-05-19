@@ -22,6 +22,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -1052,6 +1054,54 @@ func buildUsageFromGeminiMetadata(metadata dto.GeminiUsageMetadata, fallbackProm
 	return usage
 }
 
+// applyUsageRatioToGeminiResponse 将 usage_ratio 应用到 Gemini 响应的 UsageMetadata 中
+// 策略：PromptTokenCount 保持不变，通过调整 totalTokenCount 来体现 usage_ratio
+// 同时只返回 totalTokenCount，去掉其他 token 明细
+func applyUsageRatioToGeminiResponse(response *dto.GeminiChatResponse, modelName string) {
+	if response == nil {
+		return
+	}
+
+	usageRatio := operation_setting.GetQuotaUsageRatio()
+
+	metadata := &response.UsageMetadata
+	originalPrompt := metadata.PromptTokenCount + metadata.ToolUsePromptTokenCount
+	originalCompletion := metadata.CandidatesTokenCount + metadata.ThoughtsTokenCount
+
+	if originalPrompt+originalCompletion <= 0 {
+		// 没有 token 信息，直接清空明细
+		metadata.PromptTokenCount = 0
+		metadata.ToolUsePromptTokenCount = 0
+		metadata.CandidatesTokenCount = 0
+		metadata.ThoughtsTokenCount = 0
+		return
+	}
+
+	if usageRatio != 1.0 {
+		// 获取 completionRatio
+		completionRatio := ratio_setting.GetCompletionRatio(modelName)
+		if completionRatio <= 0 {
+			completionRatio = 1.0
+		}
+
+		// 原始配额 = PromptTokens + CompletionTokens * CompletionRatio
+		// 新配额 = 原始配额 * usageRatio
+		// 新TotalTokenCount = 新CompletionTokens + PromptTokens
+		if completionRatio > 0 && originalCompletion > 0 {
+			originalQuota := float64(originalPrompt) + float64(originalCompletion)*completionRatio
+			newQuota := originalQuota * usageRatio
+			newCompletionTokens := int((newQuota - float64(originalPrompt)) / completionRatio)
+			metadata.TotalTokenCount = originalPrompt + newCompletionTokens
+		}
+	}
+
+	// 只保留 totalTokenCount，去掉其他明细
+	metadata.PromptTokenCount = 0
+	metadata.ToolUsePromptTokenCount = 0
+	metadata.CandidatesTokenCount = 0
+	metadata.ThoughtsTokenCount = 0
+}
+
 func responseGeminiChat2OpenAI(c *gin.Context, response *dto.GeminiChatResponse) *dto.OpenAITextResponse {
 	fullTextResponse := dto.OpenAITextResponse{
 		Id:      helper.GetResponseID(c),
@@ -1293,6 +1343,13 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		if geminiResponse.UsageMetadata.TotalTokenCount != 0 {
 			mappedUsage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
 			*usage = mappedUsage
+		}
+
+		// 应用 usage_ratio 到流式响应中
+		applyUsageRatioToGeminiResponse(&geminiResponse, info.UpstreamModelName)
+		// 重新序列化修改后的响应
+		if modifiedData, err := common.Marshal(geminiResponse); err == nil {
+			data = string(modifiedData)
 		}
 
 		if !callback(data, &geminiResponse) {
@@ -1634,20 +1691,65 @@ func GeminiNativeImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 		refImageCount = len(imgReq.Images)
 	}
 
-	// PromptTokens: prompt 文本估算值 + 每张参考图固定 258 tokens
-	promptTokens := info.GetEstimatePromptTokens() + refImageCount*258
+	// 优先使用 Gemini 原始的 usageMetadata
+	var usage *dto.Usage
+	if geminiResponse.UsageMetadata.TotalTokenCount > 0 {
+		// 原始响应包含 Token 信息，直接使用
+		promptTokens := geminiResponse.UsageMetadata.PromptTokenCount + geminiResponse.UsageMetadata.ToolUsePromptTokenCount
+		completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount + geminiResponse.UsageMetadata.ThoughtsTokenCount
+		totalTokens := geminiResponse.UsageMetadata.TotalTokenCount
 
-	// CompletionTokens: 每张生成的图片均值 1200 + 随机波动(-200, 200)
-	generatedImages := len(openAIResponse.Data)
-	completionTokens := 0
-	for i := 0; i < generatedImages; i++ {
-		completionTokens += 1200 + rand.Intn(401) - 200
-	}
+		// 日志记录：使用原始 Token 统计
+		fmt.Printf("[Gemini Native Image] Using original usage metadata: PromptTokens=%d, CompletionTokens=%d, TotalTokens=%d\n",
+			promptTokens, completionTokens, totalTokens)
 
-	usage := &dto.Usage{
-		PromptTokens:     promptTokens,
-		CompletionTokens: completionTokens,
-		TotalTokens:      promptTokens + completionTokens,
+		usage = &dto.Usage{
+			PromptTokens:         promptTokens,
+			CompletionTokens:     completionTokens,
+			TotalTokens:          totalTokens,
+			PromptCacheHitTokens: geminiResponse.UsageMetadata.CachedContentTokenCount,
+		}
+		usage.CompletionTokenDetails.ReasoningTokens = geminiResponse.UsageMetadata.ThoughtsTokenCount
+		usage.PromptTokensDetails.CachedTokens = geminiResponse.UsageMetadata.CachedContentTokenCount
+
+		for _, detail := range geminiResponse.UsageMetadata.PromptTokensDetails {
+			if detail.Modality == "AUDIO" {
+				usage.PromptTokensDetails.AudioTokens += detail.TokenCount
+			} else if detail.Modality == "TEXT" {
+				usage.PromptTokensDetails.TextTokens += detail.TokenCount
+			}
+		}
+		for _, detail := range geminiResponse.UsageMetadata.ToolUsePromptTokensDetails {
+			if detail.Modality == "AUDIO" {
+				usage.PromptTokensDetails.AudioTokens += detail.TokenCount
+			} else if detail.Modality == "TEXT" {
+				usage.PromptTokensDetails.TextTokens += detail.TokenCount
+			}
+		}
+	} else {
+		// 原始响应没有 Token 信息，使用估算值
+		fmt.Printf("[Gemini Native Image] No original usage metadata found (TotalTokenCount=0), using estimated values. RefImageCount=%d, EstimatePromptTokens=%d\n",
+			refImageCount, info.GetEstimatePromptTokens())
+
+		// PromptTokens: prompt 文本估算值 + 每张参考图固定 258 tokens
+		promptTokens := info.GetEstimatePromptTokens() + refImageCount*258
+
+		// CompletionTokens: 每张生成的图片均值 1200 + 随机波动(-200, 200)
+		generatedImages := len(openAIResponse.Data)
+		completionTokens := 0
+		for i := 0; i < generatedImages; i++ {
+			completionTokens += 1200 + rand.Intn(401) - 200
+		}
+
+		// 日志记录：使用估算 Token 统计
+		fmt.Printf("[Gemini Native Image] Estimated usage: PromptTokens=%d, CompletionTokens=%d, TotalTokens=%d\n",
+			promptTokens, completionTokens, promptTokens+completionTokens)
+
+		usage = &dto.Usage{
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      promptTokens + completionTokens,
+		}
 	}
 
 	return usage, nil

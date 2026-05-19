@@ -106,7 +106,15 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		ratio := modelRatio * groupRatioInfo.GroupRatio
 		preConsumedQuota = int(float64(preConsumedTokens) * ratio)
 	} else {
-		if meta.ImagePriceRatio != 0 {
+		// ImageSizePrice takes precedence over ModelPrice * ImagePriceRatio
+		imageSizePriceApplied := false
+		if meta != nil && meta.ImageSize != "" {
+			if sizePrice, ok := ratio_setting.GetImageSizePrice(info.OriginModelName, meta.ImageSize); ok {
+				modelPrice = sizePrice
+				imageSizePriceApplied = true
+			}
+		}
+		if !imageSizePriceApplied && meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
 		}
 		preConsumedQuota = int(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)

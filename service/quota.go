@@ -257,6 +257,33 @@ func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData)
 }
 
 func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent string) {
+	// 注：已禁用 usage_ratio 日志显示，因此不需要记录原始 tokens
+	// 记录原始 tokens（应用 usage_ratio 之前）
+	// originalPromptTokens := 0
+	// originalCompletionTokens := 0
+	// if usage != nil {
+	// 	originalPromptTokens = usage.PromptTokens
+	// 	originalCompletionTokens = usage.CompletionTokens
+	// }
+
+	// 获取 completionRatio 用于计算
+	completionRatioForUsage := ratio_setting.GetCompletionRatio(relayInfo.OriginModelName)
+
+	// 将 usage_ratio 应用到返回给客户的 Usage 中
+	ApplyUsageRatioToUsage(usage, completionRatioForUsage)
+
+	// 注：已禁用 usage_ratio 日志显示
+	// 如果应用了 usage_ratio，记录到日志中
+	// usageRatio := operation_setting.GetQuotaUsageRatio()
+	// if usageRatio != 1.0 && usage != nil {
+	// 	if extraContent != "" {
+	// 		extraContent += ", "
+	// 	}
+	// 	extraContent += fmt.Sprintf("用户使用量比例 %.2f (Tokens: %d→%d prompt, %d→%d completion)",
+	// 		usageRatio,
+	// 		originalPromptTokens, usage.PromptTokens,
+	// 		originalCompletionTokens, usage.CompletionTokens)
+	// }
 
 	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
 	textInputTokens := usage.PromptTokensDetails.TextTokens

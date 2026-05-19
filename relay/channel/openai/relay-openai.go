@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -565,19 +566,16 @@ func OpenaiHandlerWithUsage(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
 
+	// 先解析 usage 部分，提取原始 tokens
 	var usageResp dto.SimpleResponse
 	err = common.Unmarshal(responseBody, &usageResp)
 	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		// 解析失败，直接返回原始响应
+		service.IOCopyBytesGracefully(c, resp, responseBody)
+		return nil, nil
 	}
 
-	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
-
-	// Once we've written to the client, we should not return errors anymore
-	// because the upstream has already consumed resources and returned content
-	// We should still perform billing even if parsing fails
-	// format
+	// format: 合并 InputTokens 到 PromptTokens 等
 	if usageResp.InputTokens > 0 {
 		usageResp.PromptTokens += usageResp.InputTokens
 	}
@@ -588,7 +586,71 @@ func OpenaiHandlerWithUsage(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		usageResp.PromptTokensDetails.ImageTokens += usageResp.InputTokensDetails.ImageTokens
 		usageResp.PromptTokensDetails.TextTokens += usageResp.InputTokensDetails.TextTokens
 	}
-	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
+
+	// 应用 usage_ratio 到 tokens
+	service.ApplyUsageRatioToUsage(&usageResp.Usage, info.PriceData.CompletionRatio)
+
+	// 用 map 方式修改原始 JSON，保留所有字段（如图片 data）
+	var rawResponse map[string]json.RawMessage
+	if jsonErr := common.Unmarshal(responseBody, &rawResponse); jsonErr != nil {
+		service.IOCopyBytesGracefully(c, resp, responseBody)
+		return nil, nil
+	}
+
+	// 构造新的 usage JSON（同时去掉 prompt_tokens 和 completion_tokens）
+	newUsage := map[string]any{
+		"total_tokens": usageResp.TotalTokens,
+	}
+	if usageResp.PromptTokensDetails.CachedTokens > 0 {
+		newUsage["prompt_tokens_details"] = map[string]any{
+			"cached_tokens": usageResp.PromptTokensDetails.CachedTokens,
+		}
+	}
+	if usageResp.InputTokensDetails != nil {
+		inputDetails := map[string]any{}
+		if usageResp.InputTokensDetails.ImageTokens > 0 {
+			inputDetails["image_tokens"] = usageResp.InputTokensDetails.ImageTokens
+		}
+		if usageResp.InputTokensDetails.TextTokens > 0 {
+			inputDetails["text_tokens"] = usageResp.InputTokensDetails.TextTokens
+		}
+		if len(inputDetails) > 0 {
+			newUsage["input_tokens_details"] = inputDetails
+		}
+	}
+	if usageResp.CompletionTokenDetails.TextTokens > 0 || usageResp.CompletionTokenDetails.AudioTokens > 0 {
+		outputDetails := map[string]any{}
+		if usageResp.CompletionTokenDetails.TextTokens > 0 {
+			outputDetails["text_tokens"] = usageResp.CompletionTokenDetails.TextTokens
+		}
+		if usageResp.CompletionTokenDetails.AudioTokens > 0 {
+			outputDetails["audio_tokens"] = usageResp.CompletionTokenDetails.AudioTokens
+		}
+		if len(outputDetails) > 0 {
+			newUsage["output_tokens_details"] = outputDetails
+		}
+	}
+
+	newUsageJSON, jsonErr := json.Marshal(newUsage)
+	if jsonErr != nil {
+		service.IOCopyBytesGracefully(c, resp, responseBody)
+		return nil, nil
+	}
+
+	// 替换 usage 字段
+	rawResponse["usage"] = json.RawMessage(newUsageJSON)
+
+	// 重新序列化
+	modifiedResponseBody, marshalErr := json.Marshal(rawResponse)
+	if marshalErr != nil {
+		service.IOCopyBytesGracefully(c, resp, responseBody)
+		return nil, nil
+	}
+
+	// 写入修改后的响应给客户端
+	service.IOCopyBytesGracefully(c, resp, modifiedResponseBody)
+
+	applyUsagePostProcessing(info, &usageResp.Usage, modifiedResponseBody)
 	return &usageResp.Usage, nil
 }
 

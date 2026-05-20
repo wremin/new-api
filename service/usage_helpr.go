@@ -34,12 +34,12 @@ func ResponseText2Usage(c *gin.Context, responseText string, modeName string, pr
 // ApplyUsageRatioToUsage 将 usage_ratio 系数应用到 Usage 的 tokens 信息
 // 策略：PromptTokens 保持不变，通过调整 CompletionTokens 来体现 usage_ratio
 // 公式：新CompletionTokens = [(PromptTokens + CompletionTokens * CompletionRatio) * usageRatio - PromptTokens] / CompletionRatio
-func ApplyUsageRatioToUsage(usage *dto.Usage, completionRatio float64) {
+// usageRatio: 从 GetEffectiveUsageRatio() 获取的有效系数
+func ApplyUsageRatioToUsage(usage *dto.Usage, completionRatio float64, usageRatio float64) {
 	if usage == nil {
 		fmt.Printf("[ApplyUsageRatioToUsage] usage is nil, skipping\n")
 		return
 	}
-	usageRatio := operation_setting.GetQuotaUsageRatio()
 	fmt.Printf("[ApplyUsageRatioToUsage] usage_ratio=%.2f, completionRatio=%.2f, before: prompt=%d, completion=%d, total=%d\n",
 		usageRatio, completionRatio, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
 
@@ -78,6 +78,16 @@ func ApplyUsageRatioToUsage(usage *dto.Usage, completionRatio float64) {
 		originalPrompt,
 		originalCompletion, usage.CompletionTokens,
 		originalTotal, usage.TotalTokens)
+}
+
+// GetEffectiveUsageRatio 获取最终生效的 usage_ratio
+// 优先级：渠道级 > 全局级
+// channelRatio: 渠道的 UsageRatio，nil 或 1.0 表示未设置
+func GetEffectiveUsageRatio(channelRatio *float64) float64 {
+	if channelRatio != nil && *channelRatio != 1.0 {
+		return *channelRatio
+	}
+	return operation_setting.GetQuotaUsageRatio()
 }
 
 func ValidUsage(usage *dto.Usage) bool {

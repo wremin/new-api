@@ -25,6 +25,7 @@ type PriceData struct {
 	Quota                int // 按次计费的最终额度（MJ / Task）
 	QuotaToPreConsume    int // 按量计费的预消耗额度
 	GroupRatioInfo       GroupRatioInfo
+	ChannelUsageRatio    *float64 // 渠道级用户使用量比例，nil 或 1.0 时走全局设置
 }
 
 func (p *PriceData) AddOtherRatio(key string, ratio float64) {

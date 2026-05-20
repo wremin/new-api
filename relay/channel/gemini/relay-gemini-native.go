@@ -45,7 +45,7 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 	usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
 
 	// 应用 usage_ratio 到返回给客户端的 Gemini 响应中
-	applyUsageRatioToGeminiResponse(&geminiResponse, info.UpstreamModelName)
+	applyUsageRatioToGeminiResponse(&geminiResponse, info.UpstreamModelName, info.PriceData.ChannelUsageRatio)
 
 	// 重新序列化修改后的响应
 	modifiedResponseBody, marshalErr := common.Marshal(geminiResponse)

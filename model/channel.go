@@ -51,6 +51,8 @@ type Channel struct {
 	// add after v0.8.5
 	ChannelInfo ChannelInfo `json:"channel_info" gorm:"type:json"`
 
+	UsageRatio float64 `json:"usage_ratio" gorm:"default:1.0"` // 渠道级用户使用量比例，默认 1.0（走全局设置），非 1.0 时覆盖全局
+
 	OtherSettings string `json:"settings" gorm:"column:settings"` // 其他设置，存储azure版本等不需要检索的信息，详见dto.ChannelOtherSettings
 
 	// cache info

@@ -186,6 +186,7 @@ const EditChannelModal = (props) => {
     groups: ['default'],
     priority: 0,
     weight: 0,
+    usage_ratio: 1.0,
     tag: '',
     multi_key_mode: 'random',
     // 渠道额外设置的默认值
@@ -1013,6 +1014,7 @@ const EditChannelModal = (props) => {
         (data.remark && data.remark.trim()) ||
         (data.priority && data.priority !== 0) ||
         (data.weight && data.weight !== 0) ||
+        (data.usage_ratio && data.usage_ratio !== 1.0) ||
         (data.proxy && data.proxy.trim()) ||
         (data.system_prompt && data.system_prompt.trim()) ||
         data.thinking_to_content ||
@@ -2462,6 +2464,22 @@ const EditChannelModal = (props) => {
                         placeholder={t('渠道权重')}
                         min={0}
                         onNumberChange={(value) => handleInputChange('weight', value)}
+                        style={{ width: '100%' }}
+                      />
+                    </Col>
+                  </Row>
+
+                  <Row gutter={12}>
+                    <Col span={12}>
+                      <Form.InputNumber
+                        field='usage_ratio'
+                        label={t('使用量比例')}
+                        placeholder={'1.0'}
+                        min={0.01}
+                        max={10}
+                        step={0.01}
+                        onNumberChange={(value) => handleInputChange('usage_ratio', value)}
+                        extraText={t('该渠道的用户使用量计算比例。留空或 1.0 使用全局设置。大于1放大消耗，小于1折扣')}
                         style={{ width: '100%' }}
                       />
                     </Col>

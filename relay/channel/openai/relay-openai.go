@@ -587,8 +587,11 @@ func OpenaiHandlerWithUsage(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		usageResp.PromptTokensDetails.TextTokens += usageResp.InputTokensDetails.TextTokens
 	}
 
+	// 获取最终生效的 usage_ratio（渠道级优先，全局兜底）
+	usageRatio := service.GetEffectiveUsageRatio(info.PriceData.ChannelUsageRatio)
+
 	// 应用 usage_ratio 到 tokens
-	service.ApplyUsageRatioToUsage(&usageResp.Usage, info.PriceData.CompletionRatio)
+	service.ApplyUsageRatioToUsage(&usageResp.Usage, info.PriceData.CompletionRatio, usageRatio)
 
 	// 用 map 方式修改原始 JSON，保留所有字段（如图片 data）
 	var rawResponse map[string]json.RawMessage

@@ -269,8 +269,11 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	// 获取 completionRatio 用于计算
 	completionRatioForUsage := ratio_setting.GetCompletionRatio(relayInfo.OriginModelName)
 
+	// 获取最终生效的 usage_ratio（渠道级优先，全局兜底）
+	usageRatio := GetEffectiveUsageRatio(relayInfo.PriceData.ChannelUsageRatio)
+
 	// 将 usage_ratio 应用到返回给客户的 Usage 中
-	ApplyUsageRatioToUsage(usage, completionRatioForUsage)
+	ApplyUsageRatioToUsage(usage, completionRatioForUsage, usageRatio)
 
 	// 注：已禁用 usage_ratio 日志显示
 	// 如果应用了 usage_ratio，记录到日志中

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -154,6 +155,11 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		CacheCreation5mRatio: cacheCreationRatio5m,
 		CacheCreation1hRatio: cacheCreationRatio1h,
 		QuotaToPreConsume:    preConsumedQuota,
+	}
+
+	// 读取渠道级 usage_ratio
+	if channelRatio, ok := common.GetContextKeyType[*float64](c, constant.ContextKeyChannelUsageRatio); ok && channelRatio != nil {
+		priceData.ChannelUsageRatio = channelRatio
 	}
 
 	if common.DebugEnabled {

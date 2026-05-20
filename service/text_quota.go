@@ -310,9 +310,12 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	// 获取 completionRatio 用于计算
 	completionRatio := relayInfo.PriceData.CompletionRatio
 
+	// 获取最终生效的 usage_ratio（渠道级优先，全局兜底）
+	usageRatio := GetEffectiveUsageRatio(relayInfo.PriceData.ChannelUsageRatio)
+
 	// 将 usage_ratio 应用到返回给客户的 Usage 中
 	// 这样客户看到的 tokens 已经包含了用户使用量比例
-	ApplyUsageRatioToUsage(usage, completionRatio)
+	ApplyUsageRatioToUsage(usage, completionRatio, usageRatio)
 
 	// 如果应用了 usage_ratio，记录到日志中
 	// 注：已禁用，因为 tokens 已经在计费中体现，不需要额外显示

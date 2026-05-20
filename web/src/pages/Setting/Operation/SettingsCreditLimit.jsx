@@ -194,7 +194,7 @@ export default function SettingsCreditLimit(props) {
                   min={0.01}
                   max={10}
                   extraText={t(
-                    '调整用户实际使用额度的计算比例，默认 1.0（100%）。例如设置为 1.2 表示用户实际消耗额度 = 原始额度 × 1.2',
+                    '全局用户使用量计算比例，默认 1.0（100%）。仅对未单独设置使用量比例的渠道生效，渠道级设置优先',
                   )}
                   placeholder={'1.0'}
                   onChange={(value) =>

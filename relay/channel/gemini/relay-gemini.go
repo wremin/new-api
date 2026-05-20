@@ -22,7 +22,6 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
@@ -1057,12 +1056,13 @@ func buildUsageFromGeminiMetadata(metadata dto.GeminiUsageMetadata, fallbackProm
 // applyUsageRatioToGeminiResponse 将 usage_ratio 应用到 Gemini 响应的 UsageMetadata 中
 // 策略：PromptTokenCount 保持不变，通过调整 totalTokenCount 来体现 usage_ratio
 // 同时只返回 totalTokenCount，去掉其他 token 明细
-func applyUsageRatioToGeminiResponse(response *dto.GeminiChatResponse, modelName string) {
+// channelUsageRatio: 渠道级 usage_ratio，nil 表示未设置
+func applyUsageRatioToGeminiResponse(response *dto.GeminiChatResponse, modelName string, channelUsageRatio *float64) {
 	if response == nil {
 		return
 	}
 
-	usageRatio := operation_setting.GetQuotaUsageRatio()
+	usageRatio := service.GetEffectiveUsageRatio(channelUsageRatio)
 
 	metadata := &response.UsageMetadata
 	originalPrompt := metadata.PromptTokenCount + metadata.ToolUsePromptTokenCount
@@ -1346,7 +1346,7 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 
 		// 应用 usage_ratio 到流式响应中
-		applyUsageRatioToGeminiResponse(&geminiResponse, info.UpstreamModelName)
+		applyUsageRatioToGeminiResponse(&geminiResponse, info.UpstreamModelName, info.PriceData.ChannelUsageRatio)
 		// 重新序列化修改后的响应
 		if modifiedData, err := common.Marshal(geminiResponse); err == nil {
 			data = string(modifiedData)

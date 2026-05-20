@@ -186,28 +186,6 @@ export default function SettingsCreditLimit(props) {
               </Col>
             </Row>
             <Row>
-              <Col xs={24} sm={12} md={8} lg={8} xl={6}>
-                <Form.InputNumber
-                  label={t('用户使用量比例')}
-                  field={'quota_usage_ratio_setting.usage_ratio'}
-                  step={0.01}
-                  min={0.01}
-                  max={10}
-                  extraText={t(
-                    '全局用户使用量计算比例，默认 1.0（100%）。仅对未单独设置使用量比例的渠道生效，渠道级设置优先',
-                  )}
-                  placeholder={'1.0'}
-                  onChange={(value) =>
-                    setInputs({
-                      ...inputs,
-                      'quota_usage_ratio_setting.usage_ratio': value,
-                    })
-                  }
-                />
-              </Col>
-            </Row>
-
-            <Row>
               <Button size='default' onClick={onSubmit}>
                 {t('保存额度设置')}
               </Button>

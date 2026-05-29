@@ -13,8 +13,20 @@ import (
 
 func SeedanceRequestConvert() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		// 只对 POST 请求做 body 转换，GET 等请求直接放行
+		if c.Request.Method != "POST" {
+			c.Next()
+			return
+		}
+
 		var originalReq map[string]interface{}
 		if err := common.UnmarshalBodyReusable(c, &originalReq); err != nil {
+			c.Next()
+			return
+		}
+
+		// 如果原始请求已经有 metadata 字段（已包装过），直接放行避免重复包装
+		if _, hasMetadata := originalReq["metadata"]; hasMetadata {
 			c.Next()
 			return
 		}
@@ -38,9 +50,11 @@ func SeedanceRequestConvert() func(c *gin.Context) {
 			return
 		}
 
-		// Rewrite request body and path
+		// 清除 BodyStorage 缓存，确保后续 handler 读到包装后的请求体
+		c.Set(common.KeyBodyStorage, nil)
+
+		// Rewrite request body for downstream handlers
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
-		c.Request.URL.Path = "/v1/video/generations"
 		if image, ok := originalReq["image"]; !ok || image == "" {
 			c.Set("action", constant.TaskActionTextGenerate)
 		}

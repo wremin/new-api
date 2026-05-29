@@ -600,9 +600,11 @@ func OpenaiHandlerWithUsage(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		return nil, nil
 	}
 
-	// 构造新的 usage JSON（同时去掉 prompt_tokens 和 completion_tokens）
+	// 构造新的 usage JSON（去掉 prompt_tokens/completion_tokens，保留 input/output/total）
 	newUsage := map[string]any{
-		"total_tokens": usageResp.TotalTokens,
+		"input_tokens":  usageResp.PromptTokens,
+		"output_tokens": usageResp.CompletionTokens,
+		"total_tokens":  usageResp.TotalTokens,
 	}
 	if usageResp.PromptTokensDetails.CachedTokens > 0 {
 		newUsage["prompt_tokens_details"] = map[string]any{

@@ -188,24 +188,18 @@ const FooterBar = () => {
           </div>
         )}
 
-        <div className='flex flex-col md:flex-row items-center justify-between w-full max-w-[1110px] gap-6'>
+        <div className='flex flex-col md:flex-row items-center justify-center w-full max-w-[1110px] gap-6'>
           <div className='flex flex-wrap items-center gap-2'>
             <Typography.Text className='text-sm !text-semi-color-text-1'>
               © {currentYear} {systemName}. {t('版权所有')}
             </Typography.Text>
-          </div>
-
-          <div className='text-sm'>
-            <span className='!text-semi-color-text-1'>
-              {t('设计与开发由')}{' '}
-            </span>
             <a
-              href='https://github.com/QuantumNous/new-api'
+              href='https://beian.miit.gov.cn'
               target='_blank'
               rel='noopener noreferrer'
-              className='!text-semi-color-primary font-medium'
+              className='text-sm !text-semi-color-text-1'
             >
-              New API
+              粤ICP备2025378786号
             </a>
           </div>
         </div>
@@ -222,22 +216,19 @@ const FooterBar = () => {
     <div className='w-full'>
       {footer ? (
         <footer className='relative h-auto py-4 px-6 md:px-24 w-full flex items-center justify-center overflow-hidden'>
-          <div className='flex flex-col md:flex-row items-center justify-between w-full max-w-[1110px] gap-4'>
+          <div className='flex flex-col md:flex-row items-center justify-center w-full max-w-[1110px] gap-4'>
             <div
               className='custom-footer na-cb6feafeb3990c78 text-sm !text-semi-color-text-1'
               dangerouslySetInnerHTML={{ __html: footer }}
             ></div>
-            <div className='text-sm flex-shrink-0'>
-              <span className='!text-semi-color-text-1'>
-                {t('设计与开发由')}{' '}
-              </span>
+            <div className='flex flex-wrap items-center gap-4 flex-shrink-0'>
               <a
-                href='https://github.com/QuantumNous/new-api'
+                href='https://beian.miit.gov.cn'
                 target='_blank'
                 rel='noopener noreferrer'
-                className='!text-semi-color-primary font-medium'
+                className='text-sm !text-semi-color-text-1'
               >
-                New API
+                粤ICP备2025378786号
               </a>
             </div>
           </div>

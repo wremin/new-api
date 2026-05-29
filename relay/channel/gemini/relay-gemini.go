@@ -1077,6 +1077,7 @@ func applyUsageRatioToGeminiResponse(response *dto.GeminiChatResponse, modelName
 		return
 	}
 
+	newCompletionTokens := originalCompletion
 	if usageRatio != 1.0 {
 		// 获取 completionRatio
 		completionRatio := ratio_setting.GetCompletionRatio(modelName)
@@ -1090,15 +1091,15 @@ func applyUsageRatioToGeminiResponse(response *dto.GeminiChatResponse, modelName
 		if completionRatio > 0 && originalCompletion > 0 {
 			originalQuota := float64(originalPrompt) + float64(originalCompletion)*completionRatio
 			newQuota := originalQuota * usageRatio
-			newCompletionTokens := int((newQuota - float64(originalPrompt)) / completionRatio)
-			metadata.TotalTokenCount = originalPrompt + newCompletionTokens
+			newCompletionTokens = int((newQuota - float64(originalPrompt)) / completionRatio)
 		}
 	}
+	metadata.TotalTokenCount = originalPrompt + newCompletionTokens
 
-	// 只保留 totalTokenCount，去掉其他明细
+	// 保留 totalTokenCount 和输出 tokens 明细，去掉输入 tokens 明细
 	metadata.PromptTokenCount = 0
 	metadata.ToolUsePromptTokenCount = 0
-	metadata.CandidatesTokenCount = 0
+	metadata.CandidatesTokenCount = newCompletionTokens
 	metadata.ThoughtsTokenCount = 0
 }
 

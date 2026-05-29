@@ -757,10 +757,10 @@ export const getLogsColumns = ({
       },
     },
     {
-      key: COLUMN_KEYS.TOTAL_TOKENS,
+      key: COLUMN_KEYS.PROMPT,
       title: (
         <div className='flex items-center gap-1'>
-          {t('消耗')}
+          {t('输入')}
           <Tooltip
             content={t(
               '根据 Anthropic 协定，/v1/messages 的输入 tokens 仅统计非缓存输入，不包含缓存读取与缓存写入 tokens。',
@@ -770,7 +770,7 @@ export const getLogsColumns = ({
           </Tooltip>
         </div>
       ),
-      dataIndex: 'total_tokens',
+      dataIndex: 'prompt_tokens',
       render: (text, record, index) => {
         const other = getLogOther(record.other);
         const cacheSummary = getPromptCacheSummary(other);
@@ -811,6 +811,22 @@ export const getLogsColumns = ({
               </span>
             ) : null}
           </div>
+        ) : (
+          <></>
+        );
+      },
+    },
+    {
+      key: COLUMN_KEYS.COMPLETION,
+      title: t('输出'),
+      dataIndex: 'completion_tokens',
+      render: (text, record, index) => {
+        return parseInt(text) > 0 &&
+          (record.type === 0 ||
+            record.type === 2 ||
+            record.type === 5 ||
+            record.type === 6) ? (
+          <>{<span> {text} </span>}</>
         ) : (
           <></>
         );

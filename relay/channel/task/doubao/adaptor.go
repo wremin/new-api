@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
@@ -56,13 +56,13 @@ type requestPayload struct {
 	Tools                 []struct {
 		Type string `json:"type,omitempty"`
 	} `json:"tools,omitempty"`
-	Resolution      string         `json:"resolution,omitempty"`
-	Ratio           string         `json:"ratio,omitempty"`
-	Duration        *dto.IntValue  `json:"duration,omitempty"`
-	Frames          *dto.IntValue  `json:"frames,omitempty"`
-	Seed            *dto.IntValue  `json:"seed,omitempty"`
-	CameraFixed     *dto.BoolValue `json:"camera_fixed,omitempty"`
-	Watermark       *dto.BoolValue `json:"watermark,omitempty"`
+	Resolution  string         `json:"resolution,omitempty"`
+	Ratio       string         `json:"ratio,omitempty"`
+	Duration    *dto.IntValue  `json:"duration,omitempty"`
+	Frames      *dto.IntValue  `json:"frames,omitempty"`
+	Seed        *dto.IntValue  `json:"seed,omitempty"`
+	CameraFixed *dto.BoolValue `json:"camera_fixed,omitempty"`
+	Watermark   *dto.BoolValue `json:"watermark,omitempty"`
 }
 
 type responsePayload struct {
@@ -271,6 +271,9 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
+
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("doubao upstream request: %s", string(data)))
+
 	return bytes.NewReader(data), nil
 }
 
@@ -429,43 +432,48 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 
 	if sec, _ := strconv.Atoi(req.Seconds); sec > 0 {
 		r.Duration = lo.ToPtr(dto.IntValue(sec))
+	} else if req.Duration > 0 {
+		r.Duration = lo.ToPtr(dto.IntValue(req.Duration))
 	}
 
-	// 顶层 prompt（kkidc 需要）
-	r.Prompt = req.Prompt
-
-	// 官方 Ark 用 content 数组
+	// 官方 Ark 用 content 数组：文本放在最前面，移除旧的 text 条目
 	if !isKKIDC {
+		r.Prompt = "" // Ark API 不需要 prompt 字段，清空以避免泄漏
 		r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
-		r.Content = append(r.Content, ContentItem{
+		r.Content = append([]ContentItem{{
 			Type: "text",
 			Text: req.Prompt,
-		})
+		}}, r.Content...)
 	}
 
-	// 兼容 kkidc 格式：metadata 中放 reference_* 和其他参数
-	meta := make(map[string]interface{})
-	// 先复制用户传入的 metadata
-	if metadata != nil {
-		for k, v := range metadata {
-			meta[k] = v
+	// 只有 kkidc 才需要 top-level prompt 字段和 metadata 字段
+	// 官方 Ark API 不需要这些字段，发送它们会干扰上游行为
+	if isKKIDC {
+		r.Prompt = req.Prompt
+
+		meta := make(map[string]interface{})
+		// 先复制用户传入的 metadata
+		if metadata != nil {
+			for k, v := range metadata {
+				meta[k] = v
+			}
 		}
-	}
-	// 多模态资源（字符串数组）
-	if len(req.Images) > 0 {
-		meta["reference_images"] = req.Images
-	}
-	if len(req.Videos) > 0 {
-		meta["reference_videos"] = req.Videos
-	}
-	if len(req.Audios) > 0 {
-		meta["reference_audios"] = req.Audios
-	}
-	if req.Image != "" {
-		meta["first_frame_image"] = req.Image
-	}
-	if len(meta) > 0 {
-		r.Metadata = meta
+		// 多模态资源（字符串数组）
+		if len(req.Images) > 0 {
+			meta["reference_images"] = req.Images
+		}
+		if len(req.Videos) > 0 {
+			meta["reference_videos"] = req.Videos
+		}
+		if len(req.Audios) > 0 {
+			meta["reference_audios"] = req.Audios
+		}
+		if req.Image != "" {
+			meta["first_frame_image"] = req.Image
+		}
+		if len(meta) > 0 {
+			r.Metadata = meta
+		}
 	}
 
 	return &r, nil

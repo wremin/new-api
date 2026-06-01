@@ -81,13 +81,14 @@ func EnterpriseCreateSubAccount(c *gin.Context) {
 }
 
 type enterpriseUpdateSubAccountRequest struct {
-	Id          int    `json:"id"`
-	DisplayName string `json:"display_name" validate:"max=20"`
-	Password    string `json:"password" validate:"omitempty,min=8,max=20"`
-	Status      int    `json:"status"`
+	Id          int     `json:"id"`
+	DisplayName *string `json:"display_name" validate:"omitempty,max=20"`
+	Password    string  `json:"password" validate:"omitempty,min=8,max=20"`
+	Status      *int    `json:"status" validate:"omitempty,oneof=1 2"`
 }
 
-// EnterpriseUpdateSubAccount updates a sub-account's basic info.
+// EnterpriseUpdateSubAccount updates a sub-account's basic info. Only the fields
+// present in the request are modified; status is restricted to enabled/disabled.
 func EnterpriseUpdateSubAccount(c *gin.Context) {
 	parentId := c.GetInt("id")
 
@@ -101,14 +102,7 @@ func EnterpriseUpdateSubAccount(c *gin.Context) {
 		return
 	}
 
-	user := &model.User{
-		Id:          req.Id,
-		DisplayName: req.DisplayName,
-		Password:    req.Password,
-		Status:      req.Status,
-	}
-
-	if err := model.UpdateSubAccount(parentId, user); err != nil {
+	if err := model.UpdateSubAccount(parentId, req.Id, req.DisplayName, req.Password, req.Status); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -125,9 +119,17 @@ func EnterpriseDeleteSubAccount(c *gin.Context) {
 		return
 	}
 
-	if err := model.DeleteSubAccount(parentId, subUserId); err != nil {
+	reclaimed, err := model.DeleteSubAccount(parentId, subUserId)
+	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+
+	// Quota left on the sub-account was returned to the parent inside the delete
+	// transaction; sync the parent's Redis cache and log the reclaim.
+	if reclaimed > 0 {
+		model.CacheIncrUserQuota(parentId, int64(reclaimed))
+		model.RecordLog(parentId, model.LogTypeManage, "reclaimed remaining quota from deleted sub-account")
 	}
 
 	common.ApiSuccessI18n(c, i18n.MsgDeleteSuccess, nil)
@@ -174,7 +176,7 @@ func EnterpriseAllocateQuota(c *gin.Context) {
 		model.CacheDecrUserQuota(subUserId, int64(reclaimAmount))
 		model.CacheIncrUserQuota(parentId, int64(reclaimAmount))
 		model.RecordLog(parentId, model.LogTypeManage, "reclaimed quota from sub-account")
-		model.RecordLog(subUserId, model.LogTypeConsume, "quota reclaimed by enterprise admin")
+		model.RecordLog(subUserId, model.LogTypeManage, "quota reclaimed by enterprise admin")
 	}
 
 	common.ApiSuccess(c, nil)

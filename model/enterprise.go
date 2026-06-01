@@ -61,8 +61,13 @@ func GetSubAccounts(parentId int, keyword string, startIdx int, pageSize int) ([
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	if err := query.Order("id desc").Offset(startIdx).Limit(pageSize).Find(&users).Error; err != nil {
+	// Omit the password hash from the SELECT; it must never be returned to clients.
+	if err := query.Order("id desc").Offset(startIdx).Limit(pageSize).Omit("password").Find(&users).Error; err != nil {
 		return nil, 0, err
+	}
+	// Strip the system management access token before returning.
+	for _, u := range users {
+		u.AccessToken = nil
 	}
 	return users, total, nil
 }
@@ -80,35 +85,71 @@ func GetSubAccount(parentId, userId int) (*User, error) {
 	return &user, nil
 }
 
-// UpdateSubAccount updates basic info (display_name, password, status) of a sub-account.
-func UpdateSubAccount(parentId int, user *User) error {
+// UpdateSubAccount updates basic info of a sub-account. Only the fields that are
+// explicitly provided (non-nil pointers / non-empty password) are updated, so a
+// partial update never clobbers untouched fields such as display_name or status.
+func UpdateSubAccount(parentId, userId int, displayName *string, password string, status *int) error {
 	// Verify ownership
-	existing, err := GetSubAccount(parentId, user.Id)
-	if err != nil {
+	if _, err := GetSubAccount(parentId, userId); err != nil {
 		return err
 	}
 
-	updates := map[string]interface{}{
-		"display_name": user.DisplayName,
-		"status":       user.Status,
+	updates := map[string]interface{}{}
+	if displayName != nil {
+		updates["display_name"] = *displayName
 	}
-	if user.Password != "" {
-		hashed, err := common.Password2Hash(user.Password)
+	if status != nil {
+		updates["status"] = *status
+	}
+	if password != "" {
+		hashed, err := common.Password2Hash(password)
 		if err != nil {
 			return err
 		}
 		updates["password"] = hashed
 	}
-	_ = existing // suppress unused warning
-	return DB.Model(&User{}).Where("id = ? AND parent_id = ?", user.Id, parentId).Updates(updates).Error
+	if len(updates) == 0 {
+		return nil
+	}
+	return DB.Model(&User{}).Where("id = ? AND parent_id = ?", userId, parentId).Updates(updates).Error
 }
 
-// DeleteSubAccount soft-deletes a sub-account. Remaining quota is NOT reclaimed.
-func DeleteSubAccount(parentId, userId int) error {
-	if _, err := GetSubAccount(parentId, userId); err != nil {
-		return err
+// DeleteSubAccount soft-deletes a sub-account and returns its remaining quota to
+// the parent enterprise admin (the quota was originally allocated from the parent).
+// It returns the amount of quota reclaimed so the caller can sync caches/logs.
+func DeleteSubAccount(parentId, userId int) (int, error) {
+	var reclaimed int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var sub User
+		// Row lock the sub-account and verify ownership.
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Where("id = ? AND parent_id = ?", userId, parentId).First(&sub).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSubAccountNotFound
+			}
+			return err
+		}
+
+		reclaimed = sub.Quota
+		if reclaimed > 0 {
+			if err := tx.Model(&User{}).Where("id = ?", parentId).
+				Update("quota", gorm.Expr("quota + ?", reclaimed)).Error; err != nil {
+				return err
+			}
+		}
+
+		if err := tx.Where("id = ? AND parent_id = ?", userId, parentId).Delete(&User{}).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-	return DB.Where("id = ? AND parent_id = ?", userId, parentId).Delete(&User{}).Error
+
+	// Invalidate the deleted sub-account's cache (best-effort).
+	_ = invalidateUserCache(userId)
+	return reclaimed, nil
 }
 
 // AllocateQuota transfers quota from the enterprise admin to a sub-account.
@@ -186,8 +227,37 @@ type EnterpriseUsageStat struct {
 // GetEnterpriseUsageStats returns usage statistics for all sub-accounts of the given parent.
 func GetEnterpriseUsageStats(parentId int) ([]EnterpriseUsageStat, error) {
 	var users []*User
-	if err := DB.Where("parent_id = ?", parentId).Find(&users).Error; err != nil {
+	if err := DB.Where("parent_id = ?", parentId).Omit("password").Find(&users).Error; err != nil {
 		return nil, err
+	}
+	if len(users) == 0 {
+		return []EnterpriseUsageStat{}, nil
+	}
+
+	userIds := make([]int, 0, len(users))
+	for _, u := range users {
+		userIds = append(userIds, u.Id)
+	}
+
+	// Aggregate consume-log stats for all sub-accounts in a single grouped query.
+	type aggRow struct {
+		UserId      int `gorm:"column:user_id"`
+		TotalTokens int `gorm:"column:total_tokens"`
+		TotalQuota  int `gorm:"column:total_quota"`
+	}
+	var rows []aggRow
+	err := LOG_DB.Table("logs").
+		Select("user_id, COALESCE(SUM(prompt_tokens + completion_tokens), 0) as total_tokens, COALESCE(SUM(quota), 0) as total_quota").
+		Where("user_id IN ? AND type = ?", userIds, LogTypeConsume).
+		Group("user_id").
+		Scan(&rows).Error
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to get enterprise usage stats for parent %d: %v", parentId, err))
+	}
+
+	aggByUser := make(map[int]aggRow, len(rows))
+	for _, r := range rows {
+		aggByUser[r.UserId] = r
 	}
 
 	stats := make([]EnterpriseUsageStat, 0, len(users))
@@ -200,18 +270,7 @@ func GetEnterpriseUsageStats(parentId int) ([]EnterpriseUsageStat, error) {
 			UsedQuota:    u.UsedQuota,
 			RequestCount: u.RequestCount,
 		}
-		// Aggregate log stats for this user
-		var agg struct {
-			TotalTokens int `gorm:"column:total_tokens"`
-			TotalQuota  int `gorm:"column:total_quota"`
-		}
-		err := LOG_DB.Table("logs").
-			Select("COALESCE(SUM(prompt_tokens + completion_tokens), 0) as total_tokens, COALESCE(SUM(quota), 0) as total_quota").
-			Where("user_id = ? AND type = ?", u.Id, LogTypeConsume).
-			Scan(&agg).Error
-		if err != nil {
-			common.SysLog(fmt.Sprintf("failed to get usage stats for user %d: %v", u.Id, err))
-		} else {
+		if agg, ok := aggByUser[u.Id]; ok {
 			stat.TotalTokens = agg.TotalTokens
 			stat.TotalQuotaUsed = agg.TotalQuota
 		}

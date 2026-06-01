@@ -100,11 +100,8 @@ func RequestWechatPay(c *gin.Context) {
 		clientIP = "127.0.0.1"
 	}
 
-	// 金额单位为分
-	totalFee := int(payMoney * 100)
-	if totalFee < 1 {
-		totalFee = 1
-	}
+	// 金额单位为分（使用 decimal 精确换算并四舍五入，避免浮点截断少收费用）
+	totalFee := wechatTotalFee(payMoney)
 
 	// 计算实际充值额度
 	amount := req.Amount
@@ -243,6 +240,17 @@ func WechatPayNotify(c *gin.Context) {
 	// 处理支付成功
 	if resultCode == "SUCCESS" {
 		if topUp := model.GetTopUpByTradeNo(tradeNo); topUp != nil {
+			// 校验实付金额与订单应付金额一致，防止金额被篡改或不匹配
+			expectedFee := wechatTotalFee(topUp.Money)
+			if result.TotalFee == nil || *result.TotalFee != expectedFee {
+				paid := -1
+				if result.TotalFee != nil {
+					paid = *result.TotalFee
+				}
+				log.Printf("WechatPay Webhook 金额不匹配 - 订单: %s, 期望: %d, 实付: %d", tradeNo, expectedFee, paid)
+				c.String(200, "fail")
+				return
+			}
 			if topUp.Status == "pending" {
 				// 执行充值
 				if err := model.RechargeWechat(tradeNo); err != nil {
@@ -268,6 +276,82 @@ func WechatPayNotify(c *gin.Context) {
 func WechatPayReturn(c *gin.Context) {
 	// 同步返回不做业务处理，仅跳转到结果页面
 	c.Redirect(302, system_setting.ServerAddress+"/console/log")
+}
+
+// wechatTotalFee 将充值金额（元）精确换算为微信支付所需的金额（分）。
+// 使用 decimal 四舍五入，避免 int(money*100) 的浮点截断导致少收 1 分。
+func wechatTotalFee(money float64) int {
+	fee := int(decimal.NewFromFloat(money).Mul(decimal.NewFromInt(100)).Round(0).IntPart())
+	if fee < 1 {
+		fee = 1
+	}
+	return fee
+}
+
+// reconcileWechatOrder 主动向微信查单并结算订单，作为异步回调丢失时的兜底。
+// 仅在订单仍处于 pending 且查得微信侧已支付（TradeState=SUCCESS）时才入账，
+// 并校验实付金额，确保与异步回调路径一致的安全性与幂等性。
+func reconcileWechatOrder(tradeNo string) {
+	if !setting.WechatPayEnabled {
+		return
+	}
+	if setting.WechatPayAppID == "" || setting.WechatPayMchID == "" || setting.WechatPayKey == "" {
+		return
+	}
+
+	wechatPayService, err := service.NewWechatPayService(
+		setting.WechatPayAppID,
+		setting.WechatPayMchID,
+		setting.WechatPayKey,
+		"",
+	)
+	if err != nil {
+		log.Printf("WechatPay 查单服务初始化失败: %v", err)
+		return
+	}
+
+	result, err := wechatPayService.QueryOrder(tradeNo)
+	if err != nil {
+		log.Printf("WechatPay 主动查单失败 - 订单: %s, 错误: %v", tradeNo, err)
+		return
+	}
+
+	// 通信标识与业务结果均需成功，且交易状态必须为已支付
+	if result.ReturnCode == nil || *result.ReturnCode != "SUCCESS" {
+		return
+	}
+	if result.ResultCode == nil || *result.ResultCode != "SUCCESS" {
+		return
+	}
+	if result.TradeState == nil || *result.TradeState != "SUCCESS" {
+		// NOTPAY / CLOSED / USERPAYING 等，未支付成功，直接返回
+		return
+	}
+
+	LockOrder(tradeNo)
+	defer UnlockOrder(tradeNo)
+
+	topUp := model.GetTopUpByTradeNo(tradeNo)
+	if topUp == nil || topUp.Status != "pending" {
+		return
+	}
+
+	// 校验实付金额，防止金额不一致
+	expectedFee := wechatTotalFee(topUp.Money)
+	if result.TotalFee == nil || *result.TotalFee != expectedFee {
+		paid := -1
+		if result.TotalFee != nil {
+			paid = *result.TotalFee
+		}
+		log.Printf("WechatPay 查单金额不匹配 - 订单: %s, 期望: %d, 实付: %d", tradeNo, expectedFee, paid)
+		return
+	}
+
+	if err := model.RechargeWechat(tradeNo); err != nil {
+		log.Printf("WechatPay 查单结算失败 - 订单: %s, 错误: %v", tradeNo, err)
+		return
+	}
+	log.Printf("WechatPay 查单结算成功 - 订单: %s, 用户: %d, 金额: %.2f", tradeNo, topUp.UserId, topUp.Money)
 }
 
 // isMobileUserAgent 根据User-Agent判断是否为移动设备

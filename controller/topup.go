@@ -483,6 +483,15 @@ func GetTopUpStatus(c *gin.Context) {
 		return
 	}
 
+	// 订单仍待支付且为微信支付时，主动向微信查单兜底，
+	// 避免异步回调丢失（如服务器在 NAT/防火墙后、回调地址不可达）导致订单永久卡在 pending。
+	if topUp.Status == "pending" && topUp.PaymentMethod == "wxpay" {
+		reconcileWechatOrder(topUp.TradeNo)
+		if latest := model.GetTopUpByTradeNo(tradeNo); latest != nil {
+			topUp = latest
+		}
+	}
+
 	common.ApiSuccess(c, gin.H{
 		"trade_no": topUp.TradeNo,
 		"status":   topUp.Status,

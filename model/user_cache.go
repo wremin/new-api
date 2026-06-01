@@ -125,16 +125,16 @@ func cacheGetUserBase(userId int) (*UserBase, error) {
 	return &userCache, nil
 }
 
-// Add atomic quota operations using hash fields
-func cacheIncrUserQuota(userId int, delta int64) error {
+// CacheIncrUserQuota atomically increments the user's quota in Redis cache.
+func CacheIncrUserQuota(userId int, delta int64) error {
 	if !common.RedisEnabled {
 		return nil
 	}
 	return common.RedisHIncrBy(getUserCacheKey(userId), "Quota", delta)
 }
 
-func cacheDecrUserQuota(userId int, delta int64) error {
-	return cacheIncrUserQuota(userId, -delta)
+func CacheDecrUserQuota(userId int, delta int64) error {
+	return CacheIncrUserQuota(userId, -delta)
 }
 
 // Helper functions to get individual fields if needed

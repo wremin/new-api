@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -121,12 +122,12 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"enable_online_topup":   operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
-		"enable_alipay_topup":   setting.AlipayEnabled && setting.AlipayAppID != "" && setting.AlipayPrivateKey != "" && setting.AlipayPublicKey != "",
-		"enable_stripe_topup":   setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "",
-		"enable_creem_topup":    setting.CreemApiKey != "" && setting.CreemProducts != "[]",
+		"enable_online_topup":    operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
+		"enable_alipay_topup":    setting.AlipayEnabled && setting.AlipayAppID != "" && setting.AlipayPrivateKey != "" && setting.AlipayPublicKey != "",
+		"enable_stripe_topup":    setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "",
+		"enable_creem_topup":     setting.CreemApiKey != "" && setting.CreemProducts != "[]",
 		"enable_wechatpay_topup": setting.WechatPayEnabled && setting.WechatPayAppID != "" && setting.WechatPayMchID != "" && setting.WechatPayKey != "",
-		"enable_waffo_topup":    enableWaffo,
+		"enable_waffo_topup":     enableWaffo,
 		"waffo_pay_methods": func() interface{} {
 			if enableWaffo {
 				return setting.GetWaffoPayMethods()
@@ -466,6 +467,28 @@ func GetUserTopUps(c *gin.Context) {
 	common.ApiSuccess(c, pageInfo)
 }
 
+// GetTopUpStatus 查询订单支付状态（前端轮询用）
+func GetTopUpStatus(c *gin.Context) {
+	userId := c.GetInt("id")
+	tradeNo := c.Param("trade_no")
+
+	if tradeNo == "" {
+		common.ApiError(c, errors.New("缺少订单号"))
+		return
+	}
+
+	topUp := model.GetTopUpByTradeNo(tradeNo)
+	if topUp == nil || topUp.UserId != userId {
+		common.ApiError(c, errors.New("订单不存在"))
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"trade_no": topUp.TradeNo,
+		"status":   topUp.Status,
+	})
+}
+
 // GetAllTopUps 管理员获取全平台充值记录
 func GetAllTopUps(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
@@ -513,4 +536,3 @@ func AdminCompleteTopUp(c *gin.Context) {
 	}
 	common.ApiSuccess(c, nil)
 }
-

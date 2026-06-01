@@ -262,8 +262,29 @@ const TopUp = () => {
           } else if (payWay === 'wxpay') {
             // 微信支付：直接打开支付链接（H5）或显示二维码（Native）
             if (data.is_native) {
-              // Native支付：显示二维码
-              Modal.info({
+              // Native支付：显示二维码，并轮询检测支付状态
+              const tradeNo = data.trade_no;
+              let pollTimer = null;
+              let paid = false;
+
+              const checkPaymentStatus = async () => {
+                try {
+                  const statusRes = await API.get(`/api/user/topup/status/${tradeNo}`);
+                  if (statusRes.data?.success && statusRes.data.data?.status === 'success') {
+                    paid = true;
+                    if (pollTimer) clearInterval(pollTimer);
+                    modalInstance.destroy();
+                    showSuccess(t('支付成功！'));
+                    await getUserQuota();
+                  }
+                } catch (e) {
+                  // 轮询失败忽略，继续下次
+                }
+              };
+
+              pollTimer = setInterval(checkPaymentStatus, 3000);
+
+              const modalInstance = Modal.info({
                 title: t('微信扫码支付'),
                 content: (
                   <div style={{ textAlign: 'center', padding: '20px' }}>
@@ -276,7 +297,13 @@ const TopUp = () => {
                   </div>
                 ),
                 centered: true,
-                okText: t('已完成支付'),
+                okText: t('取消已完成支付'),
+                onOk: () => {
+                  if (pollTimer) clearInterval(pollTimer);
+                  if (!paid) {
+                    getUserQuota(); // 关闭时也尝试刷新余额
+                  }
+                },
               });
             } else {
               // H5支付：直接跳转

@@ -50,6 +50,7 @@ type User struct {
 	Setting          string         `json:"setting" gorm:"type:text;column:setting"`
 	Remark           string         `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
 	StripeCustomer   string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+	ParentId         int            `json:"parent_id" gorm:"type:int;default:0;index:idx_parent_id"` // 企业管理员 ID，0 表示无上级
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -885,7 +886,7 @@ func IncreaseUserQuota(id int, quota int, db bool) (err error) {
 		return errors.New("quota 不能为负数！")
 	}
 	gopool.Go(func() {
-		err := cacheIncrUserQuota(id, int64(quota))
+		err := CacheIncrUserQuota(id, int64(quota))
 		if err != nil {
 			common.SysLog("failed to increase user quota: " + err.Error())
 		}
@@ -910,7 +911,7 @@ func DecreaseUserQuota(id int, quota int, db bool) (err error) {
 		return errors.New("quota 不能为负数！")
 	}
 	gopool.Go(func() {
-		err := cacheDecrUserQuota(id, int64(quota))
+		err := CacheDecrUserQuota(id, int64(quota))
 		if err != nil {
 			common.SysLog("failed to decrease user quota: " + err.Error())
 		}

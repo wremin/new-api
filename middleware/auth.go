@@ -179,6 +179,12 @@ func AdminAuth() func(c *gin.Context) {
 	}
 }
 
+func EnterpriseAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		authHelper(c, common.RoleEnterpriseAdmin)
+	}
+}
+
 func RootAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleRootUser)

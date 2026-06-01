@@ -172,6 +172,19 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/subscription/epay/notify", controller.SubscriptionEpayNotify)
 		apiRouter.GET("/subscription/epay/return", controller.SubscriptionEpayReturn)
 		apiRouter.POST("/subscription/epay/return", controller.SubscriptionEpayReturn)
+
+		// Enterprise management (enterprise admin role)
+		enterpriseRoute := apiRouter.Group("/enterprise")
+		enterpriseRoute.Use(middleware.EnterpriseAuth())
+		{
+			enterpriseRoute.GET("/sub-accounts", controller.EnterpriseListSubAccounts)
+			enterpriseRoute.POST("/sub-accounts", controller.EnterpriseCreateSubAccount)
+			enterpriseRoute.PUT("/sub-accounts", controller.EnterpriseUpdateSubAccount)
+			enterpriseRoute.DELETE("/sub-accounts/:id", controller.EnterpriseDeleteSubAccount)
+			enterpriseRoute.POST("/sub-accounts/:id/quota", controller.EnterpriseAllocateQuota)
+			enterpriseRoute.GET("/usage", controller.EnterpriseUsageStats)
+		}
+
 		optionRoute := apiRouter.Group("/option")
 		optionRoute.Use(middleware.RootAuth())
 		{

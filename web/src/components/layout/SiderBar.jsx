@@ -25,7 +25,7 @@ import { ChevronLeft } from 'lucide-react';
 import { useSidebarCollapsed } from '../../hooks/common/useSidebarCollapsed';
 import { useSidebar } from '../../hooks/common/useSidebar';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
-import { isAdmin, isRoot, showError } from '../../helpers';
+import { isAdmin, isRoot, isEnterpriseAdmin, showError } from '../../helpers';
 import SkeletonWrapper from './components/SkeletonWrapper';
 
 import { Nav, Divider, Button } from '@douyinfe/semi-ui';
@@ -49,6 +49,7 @@ const routerMap = {
   deployment: '/console/deployment',
   playground: '/console/playground',
   personal: '/console/personal',
+  enterprise: '/console/enterprise',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -484,6 +485,31 @@ const SiderBar = ({ onNavigate = () => {} }) => {
                   <div className='sidebar-group-label'>{t('管理员')}</div>
                 )}
                 {adminItems.map((item) => renderNavItem(item))}
+              </div>
+            </>
+          )}
+
+          {/* 企业管理区域 - 只在企业管理员时显示 */}
+          {isEnterpriseAdmin() && (
+            <>
+              <Divider className='sidebar-divider' />
+              <div>
+                {!collapsed && (
+                  <div className='sidebar-group-label'>{t('企业管理')}</div>
+                )}
+                <Nav.Item
+                  itemKey='enterprise'
+                  text={
+                    <span className='truncate font-medium text-sm'>
+                      {t('子账号管理')}
+                    </span>
+                  }
+                  icon={
+                    <div className='sidebar-icon-container flex-shrink-0'>
+                      {getLucideIcon('enterprise', selectedKeys.includes('enterprise'))}
+                    </div>
+                  }
+                />
               </div>
             </>
           )}

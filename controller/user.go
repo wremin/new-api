@@ -278,6 +278,8 @@ func GetUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
 		return
 	}
+	// Never expose another user's system management access token via the admin view.
+	user.AccessToken = nil
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -911,6 +913,22 @@ func ManageUser(c *gin.Context) {
 			return
 		}
 		user.Role = common.RoleCommonUser
+	case "promote_enterprise":
+		// 将普通用户开通为企业管理员（企业帐户）。企业管理员权限低于管理员，
+		// 因此管理员及以上即可开通；顶部已校验 myRole 必须高于目标用户。
+		if myRole < common.RoleAdminUser {
+			common.ApiErrorI18n(c, i18n.MsgUserAdminCannotPromote)
+			return
+		}
+		if user.Role == common.RoleEnterpriseAdmin {
+			common.ApiErrorMsg(c, "用户已是企业管理员")
+			return
+		}
+		if user.Role >= common.RoleAdminUser {
+			common.ApiErrorMsg(c, "请先将该管理员降级为普通用户，再开通企业管理员")
+			return
+		}
+		user.Role = common.RoleEnterpriseAdmin
 	case "add_quota":
 		adminName := c.GetString("username")
 		switch req.Mode {

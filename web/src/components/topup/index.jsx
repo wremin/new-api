@@ -265,25 +265,10 @@ const TopUp = () => {
               // Native支付：显示二维码，并轮询检测支付状态
               const tradeNo = data.trade_no;
               let pollTimer = null;
+              let pollTimeout = null;
               let paid = false;
 
-              const checkPaymentStatus = async () => {
-                try {
-                  const statusRes = await API.get(`/api/user/topup/status/${tradeNo}`);
-                  if (statusRes.data?.success && statusRes.data.data?.status === 'success') {
-                    paid = true;
-                    if (pollTimer) clearInterval(pollTimer);
-                    modalInstance.destroy();
-                    showSuccess(t('支付成功！'));
-                    await getUserQuota();
-                  }
-                } catch (e) {
-                  // 轮询失败忽略，继续下次
-                }
-              };
-
-              pollTimer = setInterval(checkPaymentStatus, 3000);
-
+              // 先创建弹窗，确保 modalInstance 在轮询回调执行前已初始化
               const modalInstance = Modal.info({
                 title: t('微信扫码支付'),
                 content: (
@@ -297,14 +282,37 @@ const TopUp = () => {
                   </div>
                 ),
                 centered: true,
-                okText: t('取消已完成支付'),
+                okText: t('已完成支付'),
                 onOk: () => {
                   if (pollTimer) clearInterval(pollTimer);
+                  if (pollTimeout) clearTimeout(pollTimeout);
                   if (!paid) {
                     getUserQuota(); // 关闭时也尝试刷新余额
                   }
                 },
               });
+
+              const checkPaymentStatus = async () => {
+                try {
+                  const statusRes = await API.get(`/api/user/topup/status/${tradeNo}`);
+                  if (statusRes.data?.success && statusRes.data.data?.status === 'success') {
+                    paid = true;
+                    if (pollTimer) clearInterval(pollTimer);
+                    if (pollTimeout) clearTimeout(pollTimeout);
+                    modalInstance.destroy();
+                    showSuccess(t('支付成功！'));
+                    await getUserQuota();
+                  }
+                } catch (e) {
+                  // 轮询失败忽略，继续下次
+                }
+              };
+
+              pollTimer = setInterval(checkPaymentStatus, 3000);
+              // 安全上限：10 分钟后自动停止轮询，避免长期占用资源
+              pollTimeout = setTimeout(() => {
+                if (pollTimer) clearInterval(pollTimer);
+              }, 10 * 60 * 1000);
             } else {
               // H5支付：直接跳转
               window.open(data.pay_url, '_blank');

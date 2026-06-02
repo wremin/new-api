@@ -434,6 +434,16 @@ func Verify2FALogin(c *gin.Context) {
 		return
 	}
 
+	// 校验账号状态：被封禁/禁用的用户即使通过 2FA 也不允许登录
+	// （普通登录路径在 ValidateAndFill 中已拦截，此分支必须同样校验）
+	if user.Status != common.UserStatusEnabled {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "用户已被封禁",
+		})
+		return
+	}
+
 	// 获取2FA记录
 	twoFA, err := model.GetTwoFAByUserId(user.Id)
 	if err != nil {

@@ -42,6 +42,12 @@ const renderRole = (role, t) => {
           {t('普通用户')}
         </Tag>
       );
+    case 5:
+      return (
+        <Tag color='green' shape='circle'>
+          {t('企业管理员')}
+        </Tag>
+      );
     case 10:
       return (
         <Tag color='yellow' shape='circle'>
@@ -209,6 +215,7 @@ const renderOperations = (
     showResetPasskeyModal,
     showResetTwoFAModal,
     showUserSubscriptionsModal,
+    manageUser,
     t,
   },
 ) => {
@@ -222,6 +229,16 @@ const renderOperations = (
       name: t('订阅管理'),
       onClick: () => showUserSubscriptionsModal(record),
     },
+    // 仅对普通用户提供"开通企业管理员"入口
+    ...(record.role === 1
+      ? [
+          {
+            node: 'item',
+            name: t('设为企业管理员'),
+            onClick: () => manageUser(record.id, 'promote_enterprise', record),
+          },
+        ]
+      : []),
     {
       node: 'divider',
     },
@@ -309,6 +326,7 @@ export const getUsersColumns = ({
   showResetPasskeyModal,
   showResetTwoFAModal,
   showUserSubscriptionsModal,
+  manageUser,
 }) => {
   return [
     {
@@ -366,6 +384,7 @@ export const getUsersColumns = ({
           showResetPasskeyModal,
           showResetTwoFAModal,
           showUserSubscriptionsModal,
+          manageUser,
           t,
         }),
     },

@@ -62,7 +62,7 @@ func Recharge(referenceId string, customerId string) (err error) {
 		return errors.New("未提供支付单号")
 	}
 
-	var quota float64
+	var quota int
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -91,7 +91,9 @@ func Recharge(referenceId string, customerId string) (err error) {
 			return err
 		}
 
-		quota = topUp.Money * common.QuotaPerUnit
+		// Credit quota using decimal to avoid float rounding drift (consistent with
+		// the other recharge paths).
+		quota = int(decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
 		err = tx.Model(&User{}).Where("id = ?", topUp.UserId).Updates(map[string]interface{}{"stripe_customer": customerId, "quota": gorm.Expr("quota + ?", quota)}).Error
 		if err != nil {
 			return err

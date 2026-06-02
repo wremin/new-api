@@ -388,6 +388,15 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 }
 
 func GetChargedAmount(count float64, user model.User) float64 {
+	// In TOKENS display mode the request amount is a token (quota) count, not a USD
+	// amount. Money must be stored as a USD-equivalent so that model.Recharge's
+	// `Money * QuotaPerUnit` credits the correct quota. Mirror getStripePayMoney,
+	// which already divides by QuotaPerUnit in this mode; otherwise the user would
+	// be credited ~QuotaPerUnit× too much quota.
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		count = count / common.QuotaPerUnit
+	}
+
 	topUpGroupRatio := common.GetTopupGroupRatio(user.Group)
 	if topUpGroupRatio == 0 {
 		topUpGroupRatio = 1

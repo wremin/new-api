@@ -201,6 +201,14 @@ func AlipayNotify(c *gin.Context) {
 	// 处理支付成功
 	if tradeStatus == "TRADE_SUCCESS" || tradeStatus == "TRADE_FINISHED" {
 		if topUp := model.GetTopUpByTradeNo(tradeNo); topUp != nil {
+			// 校验实付金额与订单金额一致（单位均为元），防止金额被篡改或不匹配
+			paidAmount, perr := decimal.NewFromString(params["total_amount"])
+			expected := decimal.NewFromFloat(topUp.Money)
+			if perr != nil || paidAmount.Sub(expected).Abs().GreaterThan(decimal.NewFromFloat(0.005)) {
+				log.Printf("Alipay Webhook 金额不匹配 - 订单: %s, 期望: %.2f, 实付: %q", tradeNo, topUp.Money, params["total_amount"])
+				c.String(200, "fail")
+				return
+			}
 			if topUp.Status == "pending" {
 				// 执行充值
 				if err := model.RechargeByTradeNo(tradeNo); err != nil {
@@ -215,7 +223,7 @@ func AlipayNotify(c *gin.Context) {
 			c.String(200, "fail")
 			return
 		}
-	} else if tradeStatus == "TRADE_CLOSED" || tradeStatus == "TRADE_FINISHED" {
+	} else if tradeStatus == "TRADE_CLOSED" {
 		// 处理订单关闭
 		if topUp := model.GetTopUpByTradeNo(tradeNo); topUp != nil && topUp.Status == "pending" {
 			topUp.Status = "failed"

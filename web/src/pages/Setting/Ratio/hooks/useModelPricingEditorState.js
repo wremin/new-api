@@ -1,3 +1,22 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
 import { useEffect, useMemo, useState } from 'react';
 import { API, showError, showSuccess } from '../../../../helpers';
 
@@ -18,6 +37,10 @@ const EMPTY_MODEL = {
   imagePrice: '',
   audioInputPrice: '',
   audioOutputPrice: '',
+  longContextInputPrice: '',
+  longContextCompletionPrice: '',
+  longContextCachePrice: '',
+  longContextCreateCachePrice: '',
   rawRatios: {
     modelRatio: '',
     completionRatio: '',
@@ -26,6 +49,10 @@ const EMPTY_MODEL = {
     imageRatio: '',
     audioRatio: '',
     audioCompletionRatio: '',
+    longContextModelRatio: '',
+    longContextCompletionRatio: '',
+    longContextCacheRatio: '',
+    longContextCreateCacheRatio: '',
   },
   hasConflict: false,
 };
@@ -110,6 +137,18 @@ const buildModelState = (name, sourceMaps) => {
   const audioCompletionRatio = toNumericString(
     sourceMaps.AudioCompletionRatio[name],
   );
+  const longContextModelRatio = toNumericString(
+    sourceMaps.LongContextModelRatio?.[name],
+  );
+  const longContextCompletionRatio = toNumericString(
+    sourceMaps.LongContextCompletionRatio?.[name],
+  );
+  const longContextCacheRatio = toNumericString(
+    sourceMaps.LongContextCacheRatio?.[name],
+  );
+  const longContextCreateCacheRatio = toNumericString(
+    sourceMaps.LongContextCreateCacheRatio?.[name],
+  );
   const fixedPrice = toNumericString(sourceMaps.ModelPrice[name]);
   const inputPrice = ratioToBasePrice(modelRatio);
   const inputPriceNumber = toNumberOrNull(inputPrice);
@@ -117,6 +156,8 @@ const buildModelState = (name, sourceMaps) => {
     inputPriceNumber !== null && hasValue(audioRatio)
       ? formatNumber(inputPriceNumber * Number(audioRatio))
       : '';
+  const longContextInputPrice = ratioToBasePrice(longContextModelRatio);
+  const longContextInputPriceNumber = toNumberOrNull(longContextInputPrice);
 
   return {
     ...EMPTY_MODEL,
@@ -127,20 +168,8 @@ const buildModelState = (name, sourceMaps) => {
     completionRatioLocked: completionRatioMeta.locked,
     lockedCompletionRatio: completionRatioMeta.ratio,
     completionPrice:
-      inputPriceNumber !== null &&
-      hasValue(
-        completionRatioMeta.locked
-          ? completionRatioMeta.ratio
-          : completionRatio,
-      )
-        ? formatNumber(
-            inputPriceNumber *
-              Number(
-                completionRatioMeta.locked
-                  ? completionRatioMeta.ratio
-                  : completionRatio,
-              ),
-          )
+      inputPriceNumber !== null && hasValue(completionRatio)
+        ? formatNumber(inputPriceNumber * Number(completionRatio))
         : '',
     cachePrice:
       inputPriceNumber !== null && hasValue(cacheRatio)
@@ -159,6 +188,25 @@ const buildModelState = (name, sourceMaps) => {
       toNumberOrNull(audioInputPrice) !== null && hasValue(audioCompletionRatio)
         ? formatNumber(Number(audioInputPrice) * Number(audioCompletionRatio))
         : '',
+    longContextInputPrice,
+    longContextCompletionPrice:
+      longContextInputPriceNumber !== null &&
+      hasValue(longContextCompletionRatio)
+        ? formatNumber(
+            longContextInputPriceNumber * Number(longContextCompletionRatio),
+          )
+        : '',
+    longContextCachePrice:
+      longContextInputPriceNumber !== null && hasValue(longContextCacheRatio)
+        ? formatNumber(longContextInputPriceNumber * Number(longContextCacheRatio))
+        : '',
+    longContextCreateCachePrice:
+      longContextInputPriceNumber !== null &&
+      hasValue(longContextCreateCacheRatio)
+        ? formatNumber(
+            longContextInputPriceNumber * Number(longContextCreateCacheRatio),
+          )
+        : '',
     rawRatios: {
       modelRatio,
       completionRatio,
@@ -167,6 +215,10 @@ const buildModelState = (name, sourceMaps) => {
       imageRatio,
       audioRatio,
       audioCompletionRatio,
+      longContextModelRatio,
+      longContextCompletionRatio,
+      longContextCacheRatio,
+      longContextCreateCacheRatio,
     },
     hasConflict:
       hasValue(fixedPrice) &&
@@ -178,6 +230,10 @@ const buildModelState = (name, sourceMaps) => {
         imageRatio,
         audioRatio,
         audioCompletionRatio,
+        longContextModelRatio,
+        longContextCompletionRatio,
+        longContextCacheRatio,
+        longContextCreateCacheRatio,
       ].some(hasValue),
   };
 };
@@ -198,6 +254,10 @@ export const getModelWarnings = (model, t) => {
     model.imagePrice,
     model.audioInputPrice,
     model.audioOutputPrice,
+    model.longContextInputPrice,
+    model.longContextCompletionPrice,
+    model.longContextCachePrice,
+    model.longContextCreateCachePrice,
   ].some(hasValue);
 
   if (model.hasConflict) {
@@ -220,6 +280,21 @@ export const getModelWarnings = (model, t) => {
     warnings.push(
       t(
         '当前模型存在未显式设置输入倍率的扩展倍率；填写输入价格后会自动换算为价格字段。',
+      ),
+    );
+  }
+
+  if (
+    !hasValue(model.longContextInputPrice) &&
+    [
+      model.rawRatios.longContextCompletionRatio,
+      model.rawRatios.longContextCacheRatio,
+      model.rawRatios.longContextCreateCacheRatio,
+    ].some(hasValue)
+  ) {
+    warnings.push(
+      t(
+        '当前模型存在未显式设置长文本输入倍率的长文本扩展倍率；填写长文本输入价格后会自动换算为价格字段。',
       ),
     );
   }
@@ -259,20 +334,32 @@ export const buildSummaryText = (model, t) => {
     ].filter(hasValue).length;
     const extraLabel =
       extraCount > 0 ? `，${t('额外价格项')} ${extraCount}` : '';
-    return `${t('输入')} $${model.inputPrice}${extraLabel}`;
+    const hasLongContext = [
+      model.longContextInputPrice,
+      model.longContextCompletionPrice,
+      model.longContextCachePrice,
+      model.longContextCreateCachePrice,
+    ].some(hasValue);
+    const longContextLabel = hasLongContext
+      ? `，${t('已配置长文本价格')}`
+      : '';
+    return `${t('输入')} $${model.inputPrice}${extraLabel}${longContextLabel}`;
   }
 
   return t('未设置价格');
 };
 
 export const buildOptionalFieldToggles = (model) => ({
-  completionPrice:
-    model.completionRatioLocked || hasValue(model.completionPrice),
+  completionPrice: hasValue(model.completionPrice),
   cachePrice: hasValue(model.cachePrice),
   createCachePrice: hasValue(model.createCachePrice),
   imagePrice: hasValue(model.imagePrice),
   audioInputPrice: hasValue(model.audioInputPrice),
   audioOutputPrice: hasValue(model.audioOutputPrice),
+  longContextInputPrice: hasValue(model.longContextInputPrice),
+  longContextCompletionPrice: hasValue(model.longContextCompletionPrice),
+  longContextCachePrice: hasValue(model.longContextCachePrice),
+  longContextCreateCachePrice: hasValue(model.longContextCreateCachePrice),
 });
 
 const serializeModel = (model, t) => {
@@ -285,6 +372,10 @@ const serializeModel = (model, t) => {
     ImageRatio: null,
     AudioRatio: null,
     AudioCompletionRatio: null,
+    LongContextModelRatio: null,
+    LongContextCompletionRatio: null,
+    LongContextCacheRatio: null,
+    LongContextCreateCacheRatio: null,
   };
 
   if (model.billingMode === 'per-request') {
@@ -301,6 +392,14 @@ const serializeModel = (model, t) => {
   const imagePrice = toNumberOrNull(model.imagePrice);
   const audioInputPrice = toNumberOrNull(model.audioInputPrice);
   const audioOutputPrice = toNumberOrNull(model.audioOutputPrice);
+  const longContextInputPrice = toNumberOrNull(model.longContextInputPrice);
+  const longContextCompletionPrice = toNumberOrNull(
+    model.longContextCompletionPrice,
+  );
+  const longContextCachePrice = toNumberOrNull(model.longContextCachePrice);
+  const longContextCreateCachePrice = toNumberOrNull(
+    model.longContextCreateCachePrice,
+  );
 
   const hasDependentPrice = [
     completionPrice,
@@ -309,6 +408,9 @@ const serializeModel = (model, t) => {
     imagePrice,
     audioInputPrice,
     audioOutputPrice,
+    longContextCompletionPrice,
+    longContextCachePrice,
+    longContextCreateCachePrice,
   ].some((value) => value !== null);
 
   if (inputPrice === null) {
@@ -350,20 +452,33 @@ const serializeModel = (model, t) => {
         model.rawRatios.audioCompletionRatio,
       );
     }
+    if (hasValue(model.rawRatios.longContextModelRatio)) {
+      result.LongContextModelRatio = toNormalizedNumber(
+        model.rawRatios.longContextModelRatio,
+      );
+    }
+    if (hasValue(model.rawRatios.longContextCompletionRatio)) {
+      result.LongContextCompletionRatio = toNormalizedNumber(
+        model.rawRatios.longContextCompletionRatio,
+      );
+    }
+    if (hasValue(model.rawRatios.longContextCacheRatio)) {
+      result.LongContextCacheRatio = toNormalizedNumber(
+        model.rawRatios.longContextCacheRatio,
+      );
+    }
+    if (hasValue(model.rawRatios.longContextCreateCacheRatio)) {
+      result.LongContextCreateCacheRatio = toNormalizedNumber(
+        model.rawRatios.longContextCreateCacheRatio,
+      );
+    }
     return result;
   }
 
   result.ModelRatio = toNormalizedNumber(inputPrice / 2);
 
-  if (!model.completionRatioLocked && completionPrice !== null) {
+  if (completionPrice !== null) {
     result.CompletionRatio = toNormalizedNumber(completionPrice / inputPrice);
-  } else if (
-    model.completionRatioLocked &&
-    hasValue(model.rawRatios.completionRatio)
-  ) {
-    result.CompletionRatio = toNormalizedNumber(
-      model.rawRatios.completionRatio,
-    );
   }
   if (cachePrice !== null) {
     result.CacheRatio = toNormalizedNumber(cachePrice / inputPrice);
@@ -387,6 +502,40 @@ const serializeModel = (model, t) => {
     }
     result.AudioCompletionRatio = toNormalizedNumber(
       audioOutputPrice / audioInputPrice,
+    );
+  }
+
+  // 长文本价格序列化：长文本输入价格为独立基础，不依赖普通输入价格
+  if (longContextInputPrice !== null) {
+    result.LongContextModelRatio = toNormalizedNumber(longContextInputPrice / 2);
+
+    if (longContextCompletionPrice !== null) {
+      result.LongContextCompletionRatio = toNormalizedNumber(
+        longContextCompletionPrice / longContextInputPrice,
+      );
+    }
+    if (longContextCachePrice !== null) {
+      result.LongContextCacheRatio = toNormalizedNumber(
+        longContextCachePrice / longContextInputPrice,
+      );
+    }
+    if (longContextCreateCachePrice !== null) {
+      result.LongContextCreateCacheRatio = toNormalizedNumber(
+        longContextCreateCachePrice / longContextInputPrice,
+      );
+    }
+  } else if (
+    longContextCompletionPrice !== null ||
+    longContextCachePrice !== null ||
+    longContextCreateCachePrice !== null
+  ) {
+    throw new Error(
+      t(
+        '模型 {{name}} 缺少长文本输入价格，无法计算长文本补全/缓存价格对应的倍率',
+        {
+          name: model.name,
+        },
+      ),
     );
   }
 
@@ -458,6 +607,34 @@ export const buildPreviewRows = (model, t) => {
           ? model.rawRatios.audioCompletionRatio
           : t('空'),
       },
+      {
+        key: 'LongContextModelRatio',
+        label: 'LongContextModelRatio',
+        value: hasValue(model.rawRatios.longContextModelRatio)
+          ? model.rawRatios.longContextModelRatio
+          : t('空'),
+      },
+      {
+        key: 'LongContextCompletionRatio',
+        label: 'LongContextCompletionRatio',
+        value: hasValue(model.rawRatios.longContextCompletionRatio)
+          ? model.rawRatios.longContextCompletionRatio
+          : t('空'),
+      },
+      {
+        key: 'LongContextCacheRatio',
+        label: 'LongContextCacheRatio',
+        value: hasValue(model.rawRatios.longContextCacheRatio)
+          ? model.rawRatios.longContextCacheRatio
+          : t('空'),
+      },
+      {
+        key: 'LongContextCreateCacheRatio',
+        label: 'LongContextCreateCacheRatio',
+        value: hasValue(model.rawRatios.longContextCreateCacheRatio)
+          ? model.rawRatios.longContextCreateCacheRatio
+          : t('空'),
+      },
     ];
   }
 
@@ -477,9 +654,8 @@ export const buildPreviewRows = (model, t) => {
     {
       key: 'CompletionRatio',
       label: 'CompletionRatio',
-      value: model.completionRatioLocked
-        ? `${model.lockedCompletionRatio || t('空')} (${t('后端固定')})`
-        : completionPrice !== null
+      value:
+        completionPrice !== null
           ? formatNumber(completionPrice / inputPrice)
           : t('空'),
     },
@@ -521,6 +697,34 @@ export const buildPreviewRows = (model, t) => {
           ? formatNumber(audioOutputPrice / audioInputPrice)
           : t('空'),
     },
+    {
+      key: 'LongContextModelRatio',
+      label: 'LongContextModelRatio',
+      value: hasValue(model.rawRatios.longContextModelRatio)
+        ? model.rawRatios.longContextModelRatio
+        : t('空'),
+    },
+    {
+      key: 'LongContextCompletionRatio',
+      label: 'LongContextCompletionRatio',
+      value: hasValue(model.rawRatios.longContextCompletionRatio)
+        ? model.rawRatios.longContextCompletionRatio
+        : t('空'),
+    },
+    {
+      key: 'LongContextCacheRatio',
+      label: 'LongContextCacheRatio',
+      value: hasValue(model.rawRatios.longContextCacheRatio)
+        ? model.rawRatios.longContextCacheRatio
+        : t('空'),
+    },
+    {
+      key: 'LongContextCreateCacheRatio',
+      label: 'LongContextCreateCacheRatio',
+      value: hasValue(model.rawRatios.longContextCreateCacheRatio)
+        ? model.rawRatios.longContextCreateCacheRatio
+        : t('空'),
+    },
   ];
 };
 
@@ -552,6 +756,14 @@ export function useModelPricingEditorState({
       ImageRatio: parseOptionJSON(options.ImageRatio),
       AudioRatio: parseOptionJSON(options.AudioRatio),
       AudioCompletionRatio: parseOptionJSON(options.AudioCompletionRatio),
+      LongContextModelRatio: parseOptionJSON(options.LongContextModelRatio),
+      LongContextCompletionRatio: parseOptionJSON(
+        options.LongContextCompletionRatio,
+      ),
+      LongContextCacheRatio: parseOptionJSON(options.LongContextCacheRatio),
+      LongContextCreateCacheRatio: parseOptionJSON(
+        options.LongContextCreateCacheRatio,
+      ),
     };
 
     const names = new Set([
@@ -565,6 +777,10 @@ export function useModelPricingEditorState({
       ...Object.keys(sourceMaps.ImageRatio),
       ...Object.keys(sourceMaps.AudioRatio),
       ...Object.keys(sourceMaps.AudioCompletionRatio),
+      ...Object.keys(sourceMaps.LongContextModelRatio),
+      ...Object.keys(sourceMaps.LongContextCompletionRatio),
+      ...Object.keys(sourceMaps.LongContextCacheRatio),
+      ...Object.keys(sourceMaps.LongContextCreateCacheRatio),
     ]);
 
     const nextModels = Array.from(names)
@@ -722,12 +938,10 @@ export function useModelPricingEditorState({
     return {
       ...model,
       completionPrice:
-        model.completionRatioLocked && hasValue(model.lockedCompletionRatio)
-          ? formatNumber(baseNumber * Number(model.lockedCompletionRatio))
-          : !hasValue(model.completionPrice) &&
-              hasValue(model.rawRatios.completionRatio)
-            ? formatNumber(baseNumber * Number(model.rawRatios.completionRatio))
-            : model.completionPrice,
+        !hasValue(model.completionPrice) &&
+        hasValue(model.rawRatios.completionRatio)
+          ? formatNumber(baseNumber * Number(model.rawRatios.completionRatio))
+          : model.completionPrice,
       cachePrice:
         !hasValue(model.cachePrice) && hasValue(model.rawRatios.cacheRatio)
           ? formatNumber(baseNumber * Number(model.rawRatios.cacheRatio))
@@ -758,6 +972,38 @@ export function useModelPricingEditorState({
     };
   };
 
+  const fillLongContextDerivedPricesFromBase = (model, nextLongContextInputPrice) => {
+    const baseNumber = toNumberOrNull(nextLongContextInputPrice);
+    if (baseNumber === null) {
+      return model;
+    }
+
+    return {
+      ...model,
+      longContextCompletionPrice:
+        !hasValue(model.longContextCompletionPrice) &&
+        hasValue(model.rawRatios.longContextCompletionRatio)
+          ? formatNumber(
+              baseNumber *
+                Number(model.rawRatios.longContextCompletionRatio),
+            )
+          : model.longContextCompletionPrice,
+      longContextCachePrice:
+        !hasValue(model.longContextCachePrice) &&
+        hasValue(model.rawRatios.longContextCacheRatio)
+          ? formatNumber(baseNumber * Number(model.rawRatios.longContextCacheRatio))
+          : model.longContextCachePrice,
+      longContextCreateCachePrice:
+        !hasValue(model.longContextCreateCachePrice) &&
+        hasValue(model.rawRatios.longContextCreateCacheRatio)
+          ? formatNumber(
+              baseNumber *
+                Number(model.rawRatios.longContextCreateCacheRatio),
+            )
+          : model.longContextCreateCachePrice,
+    };
+  };
+
   const handleNumericFieldChange = (field, value) => {
     if (!selectedModel || !NUMERIC_INPUT_REGEX.test(value)) {
       return;
@@ -768,6 +1014,10 @@ export function useModelPricingEditorState({
 
       if (field === 'inputPrice') {
         return fillDerivedPricesFromBase(updatedModel, value);
+      }
+
+      if (field === 'longContextInputPrice') {
+        return fillLongContextDerivedPricesFromBase(updatedModel, value);
       }
 
       return updatedModel;
@@ -854,19 +1104,11 @@ export function useModelPricingEditorState({
           imagePrice: selectedModel.imagePrice,
           audioInputPrice: selectedModel.audioInputPrice,
           audioOutputPrice: selectedModel.audioOutputPrice,
+          longContextInputPrice: selectedModel.longContextInputPrice,
+          longContextCompletionPrice: selectedModel.longContextCompletionPrice,
+          longContextCachePrice: selectedModel.longContextCachePrice,
+          longContextCreateCachePrice: selectedModel.longContextCreateCachePrice,
         };
-
-        if (
-          nextModel.billingMode === 'per-token' &&
-          nextModel.completionRatioLocked &&
-          hasValue(nextModel.inputPrice) &&
-          hasValue(nextModel.lockedCompletionRatio)
-        ) {
-          nextModel.completionPrice = formatNumber(
-            Number(nextModel.inputPrice) *
-              Number(nextModel.lockedCompletionRatio),
-          );
-        }
 
         return nextModel;
       }),
@@ -875,11 +1117,8 @@ export function useModelPricingEditorState({
     setOptionalFieldToggles((previous) => {
       const next = { ...previous };
       selectedModelNames.forEach((modelName) => {
-        const targetModel = models.find((item) => item.name === modelName);
         next[modelName] = {
-          completionPrice: targetModel?.completionRatioLocked
-            ? true
-            : Boolean(sourceToggles.completionPrice),
+          completionPrice: Boolean(sourceToggles.completionPrice),
           cachePrice: Boolean(sourceToggles.cachePrice),
           createCachePrice: Boolean(sourceToggles.createCachePrice),
           imagePrice: Boolean(sourceToggles.imagePrice),
@@ -887,6 +1126,14 @@ export function useModelPricingEditorState({
           audioOutputPrice:
             Boolean(sourceToggles.audioInputPrice) &&
             Boolean(sourceToggles.audioOutputPrice),
+          longContextInputPrice: Boolean(sourceToggles.longContextInputPrice),
+          longContextCompletionPrice: Boolean(
+            sourceToggles.longContextCompletionPrice,
+          ),
+          longContextCachePrice: Boolean(sourceToggles.longContextCachePrice),
+          longContextCreateCachePrice: Boolean(
+            sourceToggles.longContextCreateCachePrice,
+          ),
         };
       });
       return next;
@@ -913,6 +1160,10 @@ export function useModelPricingEditorState({
         ImageRatio: {},
         AudioRatio: {},
         AudioCompletionRatio: {},
+        LongContextModelRatio: {},
+        LongContextCompletionRatio: {},
+        LongContextCacheRatio: {},
+        LongContextCreateCacheRatio: {},
       };
 
       for (const model of models) {

@@ -140,21 +140,46 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		}
 	}
 
+	longContextThreshold := ratio_setting.GetLongContextThreshold()
+	longContextModelRatio, hasLongContextModelRatio := ratio_setting.GetLongContextModelRatio(info.OriginModelName)
+	longContextCompletionRatio, hasLongContextCompletionRatio := ratio_setting.GetLongContextCompletionRatio(info.OriginModelName)
+	longContextCacheRatio, hasLongContextCacheRatio := ratio_setting.GetLongContextCacheRatio(info.OriginModelName)
+	longContextCreateCacheRatio, hasLongContextCreateCacheRatio := ratio_setting.GetLongContextCreateCacheRatio(info.OriginModelName)
+
 	priceData := types.PriceData{
-		FreeModel:            freeModel,
-		ModelPrice:           modelPrice,
-		ModelRatio:           modelRatio,
-		CompletionRatio:      completionRatio,
-		GroupRatioInfo:       groupRatioInfo,
-		UsePrice:             usePrice,
-		CacheRatio:           cacheRatio,
-		ImageRatio:           imageRatio,
-		AudioRatio:           audioRatio,
-		AudioCompletionRatio: audioCompletionRatio,
-		CacheCreationRatio:   cacheCreationRatio,
-		CacheCreation5mRatio: cacheCreationRatio5m,
-		CacheCreation1hRatio: cacheCreationRatio1h,
-		QuotaToPreConsume:    preConsumedQuota,
+		FreeModel:                     freeModel,
+		ModelPrice:                    modelPrice,
+		ModelRatio:                    modelRatio,
+		CompletionRatio:               completionRatio,
+		GroupRatioInfo:                groupRatioInfo,
+		UsePrice:                      usePrice,
+		CacheRatio:                    cacheRatio,
+		ImageRatio:                    imageRatio,
+		AudioRatio:                    audioRatio,
+		AudioCompletionRatio:          audioCompletionRatio,
+		CacheCreationRatio:            cacheCreationRatio,
+		CacheCreation5mRatio:          cacheCreationRatio5m,
+		CacheCreation1hRatio:          cacheCreationRatio1h,
+		LongContextThreshold:          longContextThreshold,
+		LongContextModelRatio:         longContextModelRatio,
+		LongContextCompletionRatio:    longContextCompletionRatio,
+		LongContextCacheRatio:         longContextCacheRatio,
+		LongContextCacheCreationRatio: longContextCreateCacheRatio,
+		QuotaToPreConsume:             preConsumedQuota,
+	}
+
+	// 若某模型未配置长文本倍率，则视为未启用，将对应字段清零，避免后扣费阶段误判
+	if !hasLongContextModelRatio {
+		priceData.LongContextModelRatio = 0
+	}
+	if !hasLongContextCompletionRatio {
+		priceData.LongContextCompletionRatio = 0
+	}
+	if !hasLongContextCacheRatio {
+		priceData.LongContextCacheRatio = 0
+	}
+	if !hasLongContextCreateCacheRatio {
+		priceData.LongContextCacheCreationRatio = 0
 	}
 
 	// 读取渠道级 usage_ratio

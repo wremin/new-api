@@ -14,7 +14,6 @@
     "(输入 {{input}} tokens / 1M tokens * {{symbol}}{{price}}": "(入力 {{input}} tokens / 1M tokens * {{symbol}}{{price}}",
     "(输入 {{nonAudioInput}} tokens / 1M tokens * {{symbol}}{{price}} + 音频输入 {{audioInput}} tokens / 1M tokens * {{symbol}}{{audioPrice}}": "(入力 {{nonAudioInput}} tokens / 1M tokens * {{symbol}}{{price}} + オーディオ入力 {{audioInput}} tokens / 1M tokens * {{symbol}}{{audioPrice}}",
     "(输入 {{nonCacheInput}} tokens / 1M tokens * {{symbol}}{{price}} + 缓存 {{cacheInput}} tokens / 1M tokens * {{symbol}}{{cachePrice}}": "(入力 {{nonCacheInput}} tokens / 1M tokens * {{symbol}}{{price}} + キャッシュ {{cacheInput}} tokens / 1M tokens * {{symbol}}{{cachePrice}}",
-    "(输入 {{nonImageInput}} tokens + 图片输入 {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}": "(入力 {{nonImageInput}} tokens + 画像入力 {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}",
     "0 - 最低": "0 - 最低",
     "0 表示不限": "0 は無制限を意味します",
     "0.002-1之间的小数": "0.002～1の小数",
@@ -3452,6 +3451,19 @@
     "（当前仅支持易支付接口，默认使用上方服务器地址作为回调地址！）": "（現在、Epay APIのみに対応しています。デフォルトで、上記のサーバーURLがコールバックアドレスとして使用されます。）",
     "，当前无生效订阅，将自动使用钱包": "、有効なサブスクリプションがないため、自動的にウォレットを使用します",
     "，时间：": "、時間：",
-    "，点击更新": "、クリックして更新してください"
+    "，点击更新": "、クリックして更新してください",
+    "长文本定价阈值": "長文脈料金閾値",
+    "当一次请求的实际总 tokens（prompt + completion）超过该阈值时，将使用下方配置的「长文本价格」计费。默认 272k tokens。": "1回のリクエストの実際の総トークン数（prompt + completion）がこの閾値を超えると、以下で設定した「長文脈価格」が適用されます。デフォルトは 272k トークンです。",
+    "保存阈值": "閾値を保存",
+    "长文本价格": "長文脈価格",
+    "当总 tokens 超过上方阈值时生效，不填则按普通价格计费。": "総トークン数が上記の閾値を超えた場合に有効です。未入力の場合は通常価格で課金されます。",
+    "长文本输入价格": "長文脈入力価格",
+    "长文本补全价格": "長文脈補完価格",
+    "长文本缓存读取价格": "長文脈キャッシュ読み取り価格",
+    "长文本缓存创建价格": "長文脈キャッシュ作成価格",
+    "已配置长文本价格": "長文脈価格が設定されています",
+    "当前模型存在未显式设置长文本输入倍率的长文本扩展倍率；填写长文本输入价格后会自动换算为价格字段。": "現在のモデルには、長文脈入力倍率が明示的に設定されていない長文脈拡張倍率があります。長文脈入力価格を入力すると、自動的に価格フィールドに換算されます。",
+    "模型 {{name}} 缺少长文本输入价格，无法计算长文本补全/缓存价格对应的倍率": "モデル {{name}} の長文脈入力価格がありません。長文脈補完/キャッシュ価格に対応する倍率を計算できません",
+    "(输入 {{nonImageInput}} tokens + 图片输入 {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}": "(入力 {{nonImageInput}} tokens / 1M tokens * {{symbol}}{{inputPrice}} + 画像入力 {{imageInput}} tokens / 1M tokens * {{symbol}}{{imagePrice}}"
   }
 }

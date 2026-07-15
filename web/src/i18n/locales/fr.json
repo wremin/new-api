@@ -18,7 +18,6 @@
     "(输入 {{input}} tokens / 1M tokens * {{symbol}}{{price}}": "(Entrée {{input}} tokens / 1M tokens * {{symbol}}{{price}}",
     "(输入 {{nonAudioInput}} tokens / 1M tokens * {{symbol}}{{price}} + 音频输入 {{audioInput}} tokens / 1M tokens * {{symbol}}{{audioPrice}}": "(Entrée {{nonAudioInput}} tokens / 1M tokens * {{symbol}}{{price}} + Entrée audio {{audioInput}} tokens / 1M tokens * {{symbol}}{{audioPrice}}",
     "(输入 {{nonCacheInput}} tokens / 1M tokens * {{symbol}}{{price}} + 缓存 {{cacheInput}} tokens / 1M tokens * {{symbol}}{{cachePrice}}": "(Entrée {{nonCacheInput}} tokens / 1M tokens * {{symbol}}{{price}} + Cache {{cacheInput}} tokens / 1M tokens * {{symbol}}{{cachePrice}}",
-    "(输入 {{nonImageInput}} tokens + 图片输入 {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}": "(Entrée {{nonImageInput}} tokens + Entrée image {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}",
     "0 - 最低": "0 - La plus basse",
     "0 表示不限": "0 signifie illimité",
     "0.002-1之间的小数": "Décimal entre 0,002-1",
@@ -3471,6 +3470,19 @@
     "（当前仅支持易支付接口，默认使用上方服务器地址作为回调地址！）": "(Actuellement, seule l'interface Epay est prise en charge, l'adresse du serveur ci-dessus est utilisée par défaut comme adresse de rappel !)",
     "，当前无生效订阅，将自动使用钱包": ", aucun abonnement actif, le portefeuille sera utilisé automatiquement.",
     "，时间：": ", time:",
-    "，点击更新": ", cliquez sur Mettre à jour"
+    "，点击更新": ", cliquez sur Mettre à jour",
+    "长文本定价阈值": "Seuil de tarification long contexte",
+    "当一次请求的实际总 tokens（prompt + completion）超过该阈值时，将使用下方配置的「长文本价格」计费。默认 272k tokens。": "Lorsque le nombre total réel de tokens (prompt + completion) d'une requête dépasse ce seuil, le 'prix long contexte' configuré ci-dessous sera utilisé. Par défaut 272k tokens.",
+    "保存阈值": "Enregistrer le seuil",
+    "长文本价格": "Prix long contexte",
+    "当总 tokens 超过上方阈值时生效，不填则按普通价格计费。": "Prend effet lorsque le total de tokens dépasse le seuil ci-dessus ; laissez vide pour utiliser le tarif normal.",
+    "长文本输入价格": "Prix d'entrée long contexte",
+    "长文本补全价格": "Prix de complétion long contexte",
+    "长文本缓存读取价格": "Prix de lecture cache long contexte",
+    "长文本缓存创建价格": "Prix de création cache long contexte",
+    "已配置长文本价格": "Prix long contexte configuré",
+    "当前模型存在未显式设置长文本输入倍率的长文本扩展倍率；填写长文本输入价格后会自动换算为价格字段。": "Ce modèle a des ratios d'extension long contexte sans ratio d'entrée long contexte explicite ; remplir le prix d'entrée long contexte les convertira automatiquement en champs de prix.",
+    "模型 {{name}} 缺少长文本输入价格，无法计算长文本补全/缓存价格对应的倍率": "Le modèle {{name}} n'a pas de prix d'entrée long contexte, impossible de calculer les ratios pour les prix de complétion/cache long contexte",
+    "(输入 {{nonImageInput}} tokens + 图片输入 {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}": "(Entrée {{nonImageInput}} tokens / 1M tokens * {{symbol}}{{inputPrice}} + Entrée image {{imageInput}} tokens / 1M tokens * {{symbol}}{{imagePrice}}"
   }
 }

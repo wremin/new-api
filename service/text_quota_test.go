@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -315,4 +316,152 @@ func TestCalculateTextQuotaSummaryKeepsPrePRClaudeOpenRouterBilling(t *testing.T
 	require.True(t, summary.IsClaudeUsageSemantic)
 	require.Equal(t, 172, summary.PromptTokens)
 	require.Equal(t, 798, summary.Quota)
+}
+
+func TestCalculateTextQuotaSummaryLongContextPricing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	t.Run("below threshold uses normal ratios", func(t *testing.T) {
+		relayInfo := &relaycommon.RelayInfo{
+			OriginModelName: "gpt-5.4",
+			PriceData: types.PriceData{
+				ModelRatio:                    1,
+				CompletionRatio:               2,
+				CacheRatio:                    0.5,
+				CacheCreationRatio:            1,
+				CacheCreation5mRatio:          1,
+				CacheCreation1hRatio:          1.6,
+				LongContextThreshold:          10,
+				LongContextModelRatio:         3,
+				LongContextCompletionRatio:    4,
+				LongContextCacheRatio:         1.5,
+				LongContextCacheCreationRatio: 2,
+				GroupRatioInfo:                types.GroupRatioInfo{GroupRatio: 1},
+			},
+			StartTime: time.Now(),
+		}
+
+		usage := &dto.Usage{
+			PromptTokens:     5,
+			CompletionTokens: 4,
+			PromptTokensDetails: dto.InputTokenDetails{
+				CachedTokens:         1,
+				CachedCreationTokens: 1,
+			},
+		}
+
+		summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+
+		// total = 9 <= 10, use normal ratios
+		// prompt quota = (5 - 1 - 1) + 1*0.5 + 1*1 = 4.5
+		// completion quota = 4 * 2 = 8
+		// total quota = (4.5 + 8) * 1 = 12.5 => 13
+		require.False(t, summary.IsLongContext)
+		require.Equal(t, 13, summary.Quota)
+	})
+
+	t.Run("above threshold uses long context ratios", func(t *testing.T) {
+		relayInfo := &relaycommon.RelayInfo{
+			OriginModelName: "gpt-5.4",
+			PriceData: types.PriceData{
+				ModelRatio:                    1,
+				CompletionRatio:               2,
+				CacheRatio:                    0.5,
+				CacheCreationRatio:            1,
+				CacheCreation5mRatio:          1,
+				CacheCreation1hRatio:          1.6,
+				LongContextThreshold:          10,
+				LongContextModelRatio:         3,
+				LongContextCompletionRatio:    4,
+				LongContextCacheRatio:         1.5,
+				LongContextCacheCreationRatio: 2,
+				GroupRatioInfo:                types.GroupRatioInfo{GroupRatio: 1},
+			},
+			StartTime: time.Now(),
+		}
+
+		usage := &dto.Usage{
+			PromptTokens:     8,
+			CompletionTokens: 4,
+			PromptTokensDetails: dto.InputTokenDetails{
+				CachedTokens:         2,
+				CachedCreationTokens: 1,
+			},
+		}
+
+		summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+
+		// total = 12 > 10, use long context ratios
+		// base prompt = 8 - 2 - 1 = 5
+		// cache read = 2 * 1.5 = 3
+		// cache creation = 1 * 2 = 2
+		// prompt quota = 5 + 3 + 2 = 10
+		// completion quota = 4 * 4 = 16
+		// total quota = (10 + 16) * 3 = 78
+		require.True(t, summary.IsLongContext)
+		require.Equal(t, 78, summary.Quota)
+	})
+
+	t.Run("threshold zero disables long context pricing", func(t *testing.T) {
+		relayInfo := &relaycommon.RelayInfo{
+			OriginModelName: "gpt-5.4",
+			PriceData: types.PriceData{
+				ModelRatio:                    1,
+				CompletionRatio:               2,
+				CacheRatio:                    0.5,
+				CacheCreationRatio:            1,
+				CacheCreation5mRatio:          1,
+				CacheCreation1hRatio:          1.6,
+				LongContextThreshold:          0,
+				LongContextModelRatio:         3,
+				LongContextCompletionRatio:    4,
+				LongContextCacheRatio:         1.5,
+				LongContextCacheCreationRatio: 2,
+				GroupRatioInfo:                types.GroupRatioInfo{GroupRatio: 1},
+			},
+			StartTime: time.Now(),
+		}
+
+		usage := &dto.Usage{
+			PromptTokens:     8,
+			CompletionTokens: 4,
+		}
+
+		summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+
+		// threshold = 0, use normal ratios
+		// quota = (8 * 1 + 4 * 2) = 16
+		require.False(t, summary.IsLongContext)
+		require.Equal(t, 16, summary.Quota)
+	})
+
+	t.Run("per-request billing ignores long context ratios", func(t *testing.T) {
+		relayInfo := &relaycommon.RelayInfo{
+			OriginModelName: "gpt-5.4",
+			PriceData: types.PriceData{
+				ModelPrice:                    10,
+				UsePrice:                      true,
+				LongContextThreshold:          10,
+				LongContextModelRatio:         3,
+				LongContextCompletionRatio:    4,
+				LongContextCacheRatio:         1.5,
+				LongContextCacheCreationRatio: 2,
+				GroupRatioInfo:                types.GroupRatioInfo{GroupRatio: 1},
+			},
+			StartTime: time.Now(),
+		}
+
+		usage := &dto.Usage{
+			PromptTokens:     8,
+			CompletionTokens: 4,
+		}
+
+		summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+
+		// per-request billing should not switch ratios
+		require.False(t, summary.IsLongContext)
+		require.Equal(t, int(10*common.QuotaPerUnit), summary.Quota)
+	})
 }

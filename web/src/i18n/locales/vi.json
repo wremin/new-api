@@ -14,7 +14,6 @@
     "(输入 {{input}} tokens / 1M tokens * {{symbol}}{{price}}": "(Đầu vào {{input}} tokens / 1M tokens * {{symbol}}{{price}}",
     "(输入 {{nonAudioInput}} tokens / 1M tokens * {{symbol}}{{price}} + 音频输入 {{audioInput}} tokens / 1M tokens * {{symbol}}{{audioPrice}}": "(Đầu vào {{nonAudioInput}} tokens / 1M tokens * {{symbol}}{{price}} + Đầu vào âm thanh {{audioInput}} tokens / 1M tokens * {{symbol}}{{audioPrice}}",
     "(输入 {{nonCacheInput}} tokens / 1M tokens * {{symbol}}{{price}} + 缓存 {{cacheInput}} tokens / 1M tokens * {{symbol}}{{cachePrice}}": "(Đầu vào {{nonCacheInput}} tokens / 1M tokens * {{symbol}}{{price}} + Bộ nhớ đệm {{cacheInput}} tokens / 1M tokens * {{symbol}}{{cachePrice}}",
-    "(输入 {{nonImageInput}} tokens + 图片输入 {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}": "(Đầu vào {{nonImageInput}} tokens + Đầu vào hình ảnh {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}",
     "0 - 最低": "0 - Thấp nhất",
     "0 表示不限": "0 nghĩa là không giới hạn",
     "0.002-1之间的小数": "Số thập phân giữa 0.002-1",
@@ -3048,7 +3047,6 @@
     "表格视图": "Chế độ xem bảng",
     "被封禁": "Bị cấm",
     "被禁用": "Bị vô hiệu hóa",
-    "覆盖": "Ghi đè",
     "覆盖原模型": "Ghi đè mô hình gốc",
     "覆盖模式": "Chế độ ghi đè",
     "覆盖模式：将完全替换现有的所有密钥": "Chế độ ghi đè: sẽ thay thế hoàn toàn tất cả các khóa hiện có",
@@ -4020,6 +4018,19 @@
     "（当前仅支持易支付接口，默认使用上方服务器地址作为回调地址！）": "(Hiện tại chỉ hỗ trợ giao diện Epay, địa chỉ máy chủ phía trên được sử dụng làm địa chỉ gọi lại theo mặc định!)",
     "，当前无生效订阅，将自动使用钱包": ", hiện không có gói đăng ký hiệu lực, sẽ tự động dùng ví.",
     "，时间：": ", thời gian:",
-    "，点击更新": ", nhấn để cập nhật"
+    "，点击更新": ", nhấn để cập nhật",
+    "长文本定价阈值": "Ngưỡng định giá ngữ cảnh dài",
+    "当一次请求的实际总 tokens（prompt + completion）超过该阈值时，将使用下方配置的「长文本价格」计费。默认 272k tokens。": "Khi tổng số token thực tế (prompt + completion) của một yêu cầu vượt quá ngưỡng này, 'Giá ngữ cảnh dài' được cấu hình bên dưới sẽ được sử dụng. Mặc định là 272k tokens.",
+    "保存阈值": "Lưu ngưỡng",
+    "长文本价格": "Giá ngữ cảnh dài",
+    "当总 tokens 超过上方阈值时生效，不填则按普通价格计费。": "Có hiệu lực khi tổng số token vượt quá ngưỡng bên trên; để trống để sử dụng giá thông thường.",
+    "长文本输入价格": "Giá đầu vào ngữ cảnh dài",
+    "长文本补全价格": "Giá hoàn thành ngữ cảnh dài",
+    "长文本缓存读取价格": "Giá đọc cache ngữ cảnh dài",
+    "长文本缓存创建价格": "Giá tạo cache ngữ cảnh dài",
+    "已配置长文本价格": "Đã cấu hình giá ngữ cảnh dài",
+    "当前模型存在未显式设置长文本输入倍率的长文本扩展倍率；填写长文本输入价格后会自动换算为价格字段。": "Mô hình hiện tại có các tỷ lệ mở rộng ngữ cảnh dài nhưng chưa thiết lập tỷ lệ đầu vào ngữ cảnh dài; điền giá đầu vào ngữ cảnh dài sẽ tự động chuyển đổi thành các trường giá.",
+    "模型 {{name}} 缺少长文本输入价格，无法计算长文本补全/缓存价格对应的倍率": "Mô hình {{name}} thiếu giá đầu vào ngữ cảnh dài, không thể tính tỷ lệ cho giá hoàn thành/cache ngữ cảnh dài",
+    "(输入 {{nonImageInput}} tokens + 图片输入 {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}": "(Đầu vào {{nonImageInput}} tokens / 1M tokens * {{symbol}}{{inputPrice}} + Đầu vào hình ảnh {{imageInput}} tokens / 1M tokens * {{symbol}}{{imagePrice}}"
   }
 }

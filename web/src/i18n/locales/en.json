@@ -15,7 +15,6 @@
     "(输入 {{input}} tokens / 1M tokens * {{symbol}}{{price}}": "(Input {{input}} tokens / 1M tokens * {{symbol}}{{price}}",
     "(输入 {{nonAudioInput}} tokens / 1M tokens * {{symbol}}{{price}} + 音频输入 {{audioInput}} tokens / 1M tokens * {{symbol}}{{audioPrice}}": "(Input {{nonAudioInput}} tokens / 1M tokens * {{symbol}}{{price}} + Audio input {{audioInput}} tokens / 1M tokens * {{symbol}}{{audioPrice}}",
     "(输入 {{nonCacheInput}} tokens / 1M tokens * {{symbol}}{{price}} + 缓存 {{cacheInput}} tokens / 1M tokens * {{symbol}}{{cachePrice}}": "(Input {{nonCacheInput}} tokens / 1M tokens * {{symbol}}{{price}} + Cache {{cacheInput}} tokens / 1M tokens * {{symbol}}{{cachePrice}}",
-    "(输入 {{nonImageInput}} tokens + 图片输入 {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}": "(Input {{nonImageInput}} tokens + Image input {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}",
     "0 - 最低": "0 - Lowest",
     "0 表示不限": "0 means unlimited",
     "0.002-1之间的小数": "Decimal between 0.002-1",
@@ -3517,6 +3516,19 @@
     "（当前仅支持易支付接口，默认使用上方服务器地址作为回调地址！）": "(Currently only supports Epay interface, the default callback address is the server address above!)",
     "，当前无生效订阅，将自动使用钱包": ", no active subscription. Wallet will be used automatically.",
     "，时间：": ",time:",
-    "，点击更新": ", click Update"
+    "，点击更新": ", click Update",
+    "长文本定价阈值": "Long Context Pricing Threshold",
+    "当一次请求的实际总 tokens（prompt + completion）超过该阈值时，将使用下方配置的「长文本价格」计费。默认 272k tokens。": "When the actual total tokens (prompt + completion) of a request exceed this threshold, the 'Long Context Price' configured below will be used. Default is 272k tokens.",
+    "保存阈值": "Save Threshold",
+    "长文本价格": "Long Context Price",
+    "当总 tokens 超过上方阈值时生效，不填则按普通价格计费。": "Takes effect when total tokens exceed the threshold above; leave blank to use normal pricing.",
+    "长文本输入价格": "Long Context Input Price",
+    "长文本补全价格": "Long Context Completion Price",
+    "长文本缓存读取价格": "Long Context Cache Read Price",
+    "长文本缓存创建价格": "Long Context Cache Creation Price",
+    "已配置长文本价格": "Long context price configured",
+    "当前模型存在未显式设置长文本输入倍率的长文本扩展倍率；填写长文本输入价格后会自动换算为价格字段。": "This model has long context extension ratios without an explicit long context input ratio; filling in the long context input price will automatically convert them to price fields.",
+    "模型 {{name}} 缺少长文本输入价格，无法计算长文本补全/缓存价格对应的倍率": "Model {{name}} is missing long context input price, cannot calculate ratios for long context completion/cache prices",
+    "(输入 {{nonImageInput}} tokens + 图片输入 {{imageInput}} tokens / 1M tokens * {{symbol}}{{price}}": "(Input {{nonImageInput}} tokens / 1M tokens * {{symbol}}{{inputPrice}} + Image input {{imageInput}} tokens / 1M tokens * {{symbol}}{{imagePrice}}"
   }
 }

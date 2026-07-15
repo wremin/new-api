@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useMemo, useState } from 'react';
 import {
-  Banner,
   Button,
   Card,
   Checkbox,
@@ -431,22 +430,6 @@ export default function ModelPricingEditor({
                         placeholder={t('输入 $/1M tokens')}
                         onChange={(value) => handleNumericFieldChange('inputPrice', value)}
                       />
-                      {selectedModel.completionRatioLocked ? (
-                        <Banner
-                          type='warning'
-                          bordered
-                          fullMode={false}
-                          closeIcon={null}
-                          style={{ marginBottom: 12 }}
-                          title={t('补全价格已锁定')}
-                          description={t(
-                            '该模型补全倍率由后端固定为 {{ratio}}。补全价格不能在这里修改。',
-                            {
-                              ratio: selectedModel.lockedCompletionRatio || '-',
-                            },
-                          )}
-                        />
-                      ) : null}
                       <PriceInput
                         label={t('补全价格')}
                         value={selectedModel.completionPrice}
@@ -461,7 +444,6 @@ export default function ModelPricingEditor({
                               selectedModel,
                               'completionPrice',
                             )}
-                            disabled={selectedModel.completionRatioLocked}
                             onChange={(checked) =>
                               handleOptionalFieldToggle('completionPrice', checked)
                             }
@@ -470,24 +452,14 @@ export default function ModelPricingEditor({
                         hidden={
                           !isOptionalFieldEnabled(selectedModel, 'completionPrice')
                         }
-                        disabled={
-                          !hasValue(selectedModel.inputPrice) ||
-                          selectedModel.completionRatioLocked
-                        }
+                        disabled={!hasValue(selectedModel.inputPrice)}
                         extraText={
-                          selectedModel.completionRatioLocked
-                            ? t(
-                                '后端固定倍率：{{ratio}}。该字段仅展示换算后的价格。',
-                                {
-                                  ratio: selectedModel.lockedCompletionRatio || '-',
-                                },
-                              )
-                            : !isOptionalFieldEnabled(
-                                  selectedModel,
-                                  'completionPrice',
-                                )
-                              ? t('当前未启用，需要时再打开即可。')
-                              : ''
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'completionPrice',
+                          )
+                            ? t('当前未启用，需要时再打开即可。')
+                            : ''
                         }
                       />
                       <PriceInput
@@ -650,6 +622,180 @@ export default function ModelPricingEditor({
                                 )
                               ? t('当前未启用，需要时再打开即可。')
                               : ''
+                        }
+                      />
+                    </Card>
+
+                    <Card
+                      bodyStyle={{ padding: 16 }}
+                      style={{
+                        marginBottom: 16,
+                        background: 'var(--semi-color-fill-0)',
+                      }}
+                    >
+                      <div className='mb-3'>
+                        <div className='font-medium'>{t('长文本价格')}</div>
+                        <div className='text-xs text-gray-500 mt-1'>
+                          {t('当总 tokens 超过上方阈值时生效，不填则按普通价格计费。')}
+                        </div>
+                      </div>
+                      <PriceInput
+                        label={t('长文本输入价格')}
+                        value={selectedModel.longContextInputPrice}
+                        placeholder={t('输入 $/1M tokens')}
+                        onChange={(value) =>
+                          handleNumericFieldChange('longContextInputPrice', value)
+                        }
+                        headerAction={
+                          <Switch
+                            size='small'
+                            checked={isOptionalFieldEnabled(
+                              selectedModel,
+                              'longContextInputPrice',
+                            )}
+                            onChange={(checked) =>
+                              handleOptionalFieldToggle(
+                                'longContextInputPrice',
+                                checked,
+                              )
+                            }
+                          />
+                        }
+                        hidden={
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'longContextInputPrice',
+                          )
+                        }
+                        extraText={
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'longContextInputPrice',
+                          )
+                            ? t('当前未启用，需要时再打开即可。')
+                            : ''
+                        }
+                      />
+                      <PriceInput
+                        label={t('长文本补全价格')}
+                        value={selectedModel.longContextCompletionPrice}
+                        placeholder={t('输入 $/1M tokens')}
+                        onChange={(value) =>
+                          handleNumericFieldChange(
+                            'longContextCompletionPrice',
+                            value,
+                          )
+                        }
+                        headerAction={
+                          <Switch
+                            size='small'
+                            checked={isOptionalFieldEnabled(
+                              selectedModel,
+                              'longContextCompletionPrice',
+                            )}
+                            onChange={(checked) =>
+                              handleOptionalFieldToggle(
+                                'longContextCompletionPrice',
+                                checked,
+                              )
+                            }
+                          />
+                        }
+                        hidden={
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'longContextCompletionPrice',
+                          )
+                        }
+                        disabled={
+                          !hasValue(selectedModel.longContextInputPrice)
+                        }
+                        extraText={
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'longContextCompletionPrice',
+                          )
+                            ? t('当前未启用，需要时再打开即可。')
+                            : ''
+                        }
+                      />
+                      <PriceInput
+                        label={t('长文本缓存读取价格')}
+                        value={selectedModel.longContextCachePrice}
+                        placeholder={t('输入 $/1M tokens')}
+                        onChange={(value) =>
+                          handleNumericFieldChange('longContextCachePrice', value)
+                        }
+                        headerAction={
+                          <Switch
+                            size='small'
+                            checked={isOptionalFieldEnabled(
+                              selectedModel,
+                              'longContextCachePrice',
+                            )}
+                            onChange={(checked) =>
+                              handleOptionalFieldToggle(
+                                'longContextCachePrice',
+                                checked,
+                              )
+                            }
+                          />
+                        }
+                        hidden={
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'longContextCachePrice',
+                          )
+                        }
+                        disabled={!hasValue(selectedModel.longContextInputPrice)}
+                        extraText={
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'longContextCachePrice',
+                          )
+                            ? t('当前未启用，需要时再打开即可。')
+                            : ''
+                        }
+                      />
+                      <PriceInput
+                        label={t('长文本缓存创建价格')}
+                        value={selectedModel.longContextCreateCachePrice}
+                        placeholder={t('输入 $/1M tokens')}
+                        onChange={(value) =>
+                          handleNumericFieldChange(
+                            'longContextCreateCachePrice',
+                            value,
+                          )
+                        }
+                        headerAction={
+                          <Switch
+                            size='small'
+                            checked={isOptionalFieldEnabled(
+                              selectedModel,
+                              'longContextCreateCachePrice',
+                            )}
+                            onChange={(checked) =>
+                              handleOptionalFieldToggle(
+                                'longContextCreateCachePrice',
+                                checked,
+                              )
+                            }
+                          />
+                        }
+                        hidden={
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'longContextCreateCachePrice',
+                          )
+                        }
+                        disabled={!hasValue(selectedModel.longContextInputPrice)}
+                        extraText={
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'longContextCreateCachePrice',
+                          )
+                            ? t('当前未启用，需要时再打开即可。')
+                            : ''
                         }
                       />
                     </Card>

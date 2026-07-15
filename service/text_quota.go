@@ -42,6 +42,7 @@ type textQuotaSummary struct {
 	CacheCreationRatio1h     float64
 	Quota                    int
 	IsClaudeUsageSemantic    bool
+	IsLongContext            bool
 	UsageSemantic            string
 	WebSearchPrice           float64
 	WebSearchCallCount       int
@@ -127,6 +128,37 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 			}
 		}
 		summary.PromptTokens -= summary.CacheCreationTokens
+	}
+
+	// 长文本定价切换：按量计费下，若实际总 tokens 超过阈值且配置了长文本倍率，则使用后扣费阶段的长文本倍率
+	if !relayInfo.PriceData.UsePrice &&
+		relayInfo.PriceData.LongContextThreshold > 0 &&
+		summary.TotalTokens > relayInfo.PriceData.LongContextThreshold &&
+		(relayInfo.PriceData.LongContextModelRatio > 0 ||
+			relayInfo.PriceData.LongContextCompletionRatio > 0 ||
+			relayInfo.PriceData.LongContextCacheRatio > 0 ||
+			relayInfo.PriceData.LongContextCacheCreationRatio > 0) {
+		if relayInfo.PriceData.LongContextModelRatio > 0 {
+			summary.ModelRatio = relayInfo.PriceData.LongContextModelRatio
+		}
+		if relayInfo.PriceData.LongContextCompletionRatio > 0 {
+			summary.CompletionRatio = relayInfo.PriceData.LongContextCompletionRatio
+		}
+		if relayInfo.PriceData.LongContextCacheRatio > 0 {
+			summary.CacheRatio = relayInfo.PriceData.LongContextCacheRatio
+		}
+		if relayInfo.PriceData.LongContextCacheCreationRatio > 0 {
+			if summary.CacheCreationRatio > 0 {
+				multiplier := relayInfo.PriceData.LongContextCacheCreationRatio / summary.CacheCreationRatio
+				summary.CacheCreationRatio = relayInfo.PriceData.LongContextCacheCreationRatio
+				summary.CacheCreationRatio5m = relayInfo.PriceData.CacheCreation5mRatio * multiplier
+				summary.CacheCreationRatio1h = relayInfo.PriceData.CacheCreation1hRatio * multiplier
+			} else {
+				summary.CacheCreationRatio = relayInfo.PriceData.LongContextCacheCreationRatio
+				summary.CacheCreationRatio5m = relayInfo.PriceData.LongContextCacheCreationRatio
+			}
+		}
+		summary.IsLongContext = true
 	}
 
 	dPromptTokens := decimal.NewFromInt(int64(summary.PromptTokens))
@@ -416,6 +448,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if summary.ImageGenerationCallPrice > 0 {
 		other["image_generation_call"] = true
 		other["image_generation_call_price"] = summary.ImageGenerationCallPrice
+	}
+	if summary.IsLongContext {
+		other["long_context"] = true
 	}
 	if summary.CacheCreationTokens > 0 {
 		other["cache_creation_tokens"] = summary.CacheCreationTokens

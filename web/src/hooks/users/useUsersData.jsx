@@ -35,6 +35,7 @@ export const useUsersData = () => {
   const [searching, setSearching] = useState(false);
   const [groupOptions, setGroupOptions] = useState([]);
   const [userCount, setUserCount] = useState(0);
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
 
   // Modal states
   const [showAddUser, setShowAddUser] = useState(false);
@@ -188,6 +189,33 @@ export const useUsersData = () => {
     }
   };
 
+  // Batch delete users
+  const batchDeleteUsers = async (userIds) => {
+    setLoading(true);
+    try {
+      const res = await API.post('/api/user/batch_delete', {
+        user_ids: userIds,
+      });
+      const { success, message, data } = res.data;
+      if (success) {
+        const { deleted, skipped } = data;
+        showSuccess(
+          t('批量删除完成') +
+            `：${t('成功')} ${deleted} ${t('个')}` +
+            (skipped > 0 ? `，${t('跳过')} ${skipped} ${t('个')}` : ''),
+        );
+        setSelectedRowKeys([]);
+        await refresh();
+      } else {
+        showError(message);
+      }
+    } catch (error) {
+      showError(t('批量删除失败'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Handle page change
   const handlePageChange = (page) => {
     setActivePage(page);
@@ -307,6 +335,7 @@ export const useUsersData = () => {
     manageUser,
     resetUserPasskey,
     resetUserTwoFA,
+    batchDeleteUsers,
     handlePageChange,
     handlePageSizeChange,
     handleRow,
@@ -314,6 +343,8 @@ export const useUsersData = () => {
     closeAddUser,
     closeEditUser,
     getFormValues,
+    selectedRowKeys,
+    setSelectedRowKeys,
 
     // Translation
     t,

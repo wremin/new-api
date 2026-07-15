@@ -782,6 +782,63 @@ func DeleteUser(c *gin.Context) {
 	}
 }
 
+type BatchDeleteRequest struct {
+	UserIds []int `json:"user_ids"`
+}
+
+// BatchDeleteUsers 批量删除用户（软删除）
+func BatchDeleteUsers(c *gin.Context) {
+	var req BatchDeleteRequest
+	err := common.DecodeJson(c.Request.Body, &req)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	if len(req.UserIds) == 0 {
+		common.ApiError(c, errors.New("请选择要删除的用户"))
+		return
+	}
+
+	if len(req.UserIds) > 100 {
+		common.ApiError(c, errors.New("单次最多删除 100 个用户"))
+		return
+	}
+
+	myRole := c.GetInt("role")
+	deleted := 0
+	skipped := 0
+
+	for _, userId := range req.UserIds {
+		originUser, err := model.GetUserById(userId, false)
+		if err != nil {
+			skipped++
+			continue
+		}
+		// 不能删除同级或更高级别的用户
+		if myRole <= originUser.Role {
+			skipped++
+			continue
+		}
+		// 软删除：将 status 设为禁用
+		err = model.DB.Model(&model.User{}).Where("id = ?", userId).Update("status", common.UserStatusDisabled).Error
+		if err != nil {
+			skipped++
+			continue
+		}
+		deleted++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"deleted": deleted,
+			"skipped": skipped,
+		},
+	})
+}
+
 func DeleteSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	user, _ := model.GetUserById(id, false)

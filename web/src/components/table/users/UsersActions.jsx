@@ -18,19 +18,46 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Button } from '@douyinfe/semi-ui';
+import { Button, Popconfirm } from '@douyinfe/semi-ui';
+import { IconDelete } from '@douyinfe/semi-icons';
 
-const UsersActions = ({ setShowAddUser, t }) => {
+const UsersActions = ({
+  setShowAddUser,
+  selectedRowKeys,
+  onBatchDelete,
+  t,
+}) => {
   // Add new user
   const handleAddUser = () => {
     setShowAddUser(true);
   };
+
+  const hasSelection = selectedRowKeys && selectedRowKeys.length > 0;
 
   return (
     <div className='flex gap-2 w-full md:w-auto order-2 md:order-1'>
       <Button className='w-full md:w-auto' onClick={handleAddUser} size='small'>
         {t('添加用户')}
       </Button>
+      {hasSelection && (
+        <Popconfirm
+          title={t('确认批量删除')}
+          content={t('确定要删除选中的 {{count}} 个用户吗？此操作为软删除（禁用），可在之后恢复。', {
+            count: selectedRowKeys.length,
+          })}
+          onConfirm={onBatchDelete}
+          position='bottom'
+        >
+          <Button
+            type='danger'
+            theme='light'
+            size='small'
+            icon={<IconDelete size='small' />}
+          >
+            {t('批量删除')} ({selectedRowKeys.length})
+          </Button>
+        </Popconfirm>
+      )}
     </div>
   );
 };

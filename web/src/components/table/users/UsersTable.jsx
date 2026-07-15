@@ -50,6 +50,8 @@ const UsersTable = (usersData) => {
     refresh,
     resetUserPasskey,
     resetUserTwoFA,
+    selectedRowKeys,
+    setSelectedRowKeys,
     t,
   } = usersData;
 
@@ -176,6 +178,13 @@ const UsersTable = (usersData) => {
         columns={tableColumns}
         dataSource={users}
         scroll={compactMode ? undefined : { x: 'max-content' }}
+        rowSelection={{
+          selectedRowKeys: selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+          getCheckboxProps: (record) => ({
+            disabled: record.role >= 10, // 不能选择管理员
+          }),
+        }}
         pagination={{
           currentPage: activePage,
           pageSize: pageSize,

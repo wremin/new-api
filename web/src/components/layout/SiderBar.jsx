@@ -45,6 +45,7 @@ const routerMap = {
   detail: '/console',
   pricing: '/pricing',
   task: '/console/task',
+  assets: '/console/assets',
   models: '/console/models',
   deployment: '/console/deployment',
   playground: '/console/playground',
@@ -105,6 +106,11 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         to: '/task',
         className:
           localStorage.getItem('enable_task') === 'true' ? '' : 'tableHiddle',
+      },
+      {
+        text: t('素材库'),
+        itemKey: 'assets',
+        to: '/assets',
       },
     ];
 

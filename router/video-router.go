@@ -18,7 +18,10 @@ func SetVideoRouter(router *gin.Engine) {
 
 	videoV1Router := router.Group("/v1")
 	videoV1Router.Use(middleware.RouteTag("relay"))
-	videoV1Router.Use(middleware.SeedanceRequestConvert(), middleware.TokenAuth(), middleware.Distribute())
+	// AssetRefCheck 位于 TokenAuth 之后（需要 user id）、Distribute 之前，
+	// 把引用了不存在/未审核/跨区域素材的请求在网关侧拦掉。
+	// 请求体中不含 asset:// 时它会立即放行，对现有用法零影响。
+	videoV1Router.Use(middleware.SeedanceRequestConvert(), middleware.TokenAuth(), middleware.AssetRefCheck(), middleware.Distribute())
 	{
 		videoV1Router.POST("/video/generations", controller.RelayTask)
 		videoV1Router.GET("/video/generations/:task_id", controller.RelayTaskFetch)

@@ -51,6 +51,7 @@ import PersonalSetting from './components/settings/PersonalSetting';
 import Setup from './pages/Setup';
 import SetupCheck from './components/layout/SetupCheck';
 
+const Assets = lazy(() => import('./pages/Assets'));
 const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const About = lazy(() => import('./pages/About'));
@@ -320,6 +321,16 @@ function App() {
             <PrivateRoute>
               <Suspense fallback={<Loading></Loading>} key={location.pathname}>
                 <Task />
+              </Suspense>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path='/console/assets'
+          element={
+            <PrivateRoute>
+              <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+                <Assets />
               </Suspense>
             </PrivateRoute>
           }

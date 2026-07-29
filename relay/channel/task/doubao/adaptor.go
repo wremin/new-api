@@ -70,6 +70,39 @@ type responsePayload struct {
 	ID string `json:"id"` // task_id
 }
 
+// stelloriaRequestPayload 是 Stelloria 的扁平请求体，与 Ark 的 content[] 结构完全不同。
+//
+// duration 是字符串（"5s" / "10s"），不是整数秒；宽高比字段叫 aspect_ratio 而非 ratio。
+// Content 不在官方参数表里，但文档「注意事项」提到「content 数组中必须包含至少一个
+// text 类型元素」，且上游确实支持 asset:// 素材引用——多模态输入没有别的表达方式。
+// 因此仅当下游请求本身带了 content 时才透传，避免给简单的文生视频请求塞未文档化的字段。
+type stelloriaRequestPayload struct {
+	Model       string        `json:"model"`
+	Prompt      string        `json:"prompt"`
+	ImageURL    string        `json:"image_url,omitempty"`
+	Duration    string        `json:"duration,omitempty"`
+	AspectRatio string        `json:"aspect_ratio,omitempty"`
+	Resolution  string        `json:"resolution,omitempty"`
+	FPS         *dto.IntValue `json:"fps,omitempty"`
+	Seed        *dto.IntValue `json:"seed,omitempty"`
+	Content     []ContentItem `json:"content,omitempty"`
+}
+
+// stelloriaTaskResponse 是 Stelloria 的提交与查询响应。
+// 提交时只有 task_id / status / model；查询完成后多一个 result。
+type stelloriaTaskResponse struct {
+	TaskID string `json:"task_id"`
+	Status string `json:"status"`
+	Model  string `json:"model"`
+	Result struct {
+		VideoURL   string `json:"video_url"`
+		CoverURL   string `json:"cover_url"`
+		Duration   string `json:"duration"`
+		Resolution string `json:"resolution"`
+	} `json:"result"`
+	Error string `json:"error"`
+}
+
 // kkidc 响应结构体（OpenAI 兼容格式）
 type kkidcSubmitResponse struct {
 	TaskID    string `json:"task_id"`
@@ -169,6 +202,19 @@ func isSeegenBaseURL(baseURL string) bool {
 	return strings.Contains(baseURL, "seegen")
 }
 
+// isStelloriaBaseURL 判断上游是否为星瞳 Stelloria。
+//
+// Stelloria 与前三家在每一层都不同，是完全独立的一套协议：
+//   - 提交 POST /v1/videos/generations（复数 videos，注意不是 kkidc 的单数 video）
+//   - 查询 GET  /v1/tasks/{id}（换了前缀，不在提交路径下）
+//   - 请求体是扁平结构（prompt / image_url / duration:"5s" / aspect_ratio），
+//     不是 Ark 的 content[] 数组
+//   - 提交返回 {"task_id":...}，查询返回 {"status":"completed","result":{"video_url":...}}
+//   - 状态取值是 processing / completed / failed
+func isStelloriaBaseURL(baseURL string) bool {
+	return strings.Contains(baseURL, "stelloria")
+}
+
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
 	// kkidc 使用 OpenAI 兼容路径 /v1/video/generations
@@ -178,6 +224,10 @@ func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) 
 	// seegen.ai 使用 /v1/contents/generations/tasks
 	if isSeegenBaseURL(a.baseURL) {
 		return fmt.Sprintf("%s/v1/contents/generations/tasks", a.baseURL), nil
+	}
+	// Stelloria 使用 /v1/videos/generations（复数 videos）
+	if isStelloriaBaseURL(a.baseURL) {
+		return fmt.Sprintf("%s/v1/videos/generations", a.baseURL), nil
 	}
 	// 火山引擎原生 Ark
 	return fmt.Sprintf("%s/api/v3/contents/generations/tasks", a.baseURL), nil
@@ -280,6 +330,22 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, err
 	}
 
+	// Stelloria 的请求体是完全不同的扁平结构，单独构造
+	if isStelloriaBaseURL(a.baseURL) {
+		body := a.convertToStelloriaPayload(&req)
+		if info.IsModelMapped {
+			body.Model = info.UpstreamModelName
+		} else {
+			info.UpstreamModelName = body.Model
+		}
+		data, err := common.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		logger.LogInfo(c.Request.Context(), fmt.Sprintf("stelloria upstream request: %s", string(data)))
+		return bytes.NewReader(data), nil
+	}
+
 	body, err := a.convertToRequestPayload(&req)
 	if err != nil {
 		return nil, errors.Wrap(err, "convert request payload failed")
@@ -359,7 +425,8 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return dResp.ID, responseBody, nil
 	}
 
-	// 再尝试 kkidc 格式
+	// 再尝试顶层 task_id 的格式。
+	// kkidc 与 Stelloria 的提交响应都是 {"task_id":...,"status":...}，共用这一支即可。
 	var kkidcResp kkidcSubmitResponse
 	if err := common.Unmarshal(responseBody, &kkidcResp); err == nil && kkidcResp.TaskID != "" {
 		ov := dto.NewOpenAIVideo()
@@ -388,23 +455,47 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		uri = fmt.Sprintf("%s/v1/video/generations/%s", baseUrl, taskID)
 	case isSeegenBaseURL(baseUrl):
 		uri = fmt.Sprintf("%s/v1/contents/generations/tasks/%s", baseUrl, taskID)
+	case isStelloriaBaseURL(baseUrl):
+		// Stelloria 的查询不在提交路径下，而是独立的 /v1/tasks/{id}。
+		//
+		// 注意：官方文档在这里自相矛盾——Python 示例写的是 /tasks/{id}（无 /v1），
+		// cURL 示例和「响应格式」小节写的都是 /v1/tasks/{id}。这里按二比一取
+		// /v1/tasks/{id}，若上游 404 会自动回退到 /tasks/{id}（见下方重试逻辑）。
+		uri = fmt.Sprintf("%s/v1/tasks/%s", baseUrl, taskID)
 	default:
 		uri = fmt.Sprintf("%s/api/v3/contents/generations/tasks/%s", baseUrl, taskID)
 	}
-
-	req, err := http.NewRequest(http.MethodGet, uri, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+key)
 
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
+
+	resp, err := doFetchTaskGet(client, uri, key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Stelloria 文档对轮询路径的写法自相矛盾，这里做一次容错回退：
+	// /v1/tasks/{id} 拿到 404 时改试 /tasks/{id}。只在 Stelloria 上生效，
+	// 其余上游的 404 保持原样交给上层判断。
+	if resp.StatusCode == http.StatusNotFound && isStelloriaBaseURL(baseUrl) {
+		_ = resp.Body.Close()
+		fallback := fmt.Sprintf("%s/tasks/%s", baseUrl, taskID)
+		return doFetchTaskGet(client, fallback, key)
+	}
+	return resp, nil
+}
+
+// doFetchTaskGet 发一个带鉴权的 GET，供 FetchTask 与其回退路径共用。
+func doFetchTaskGet(client *http.Client, uri, key string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, uri, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+key)
 	return client.Do(req)
 }
 
@@ -506,11 +597,135 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	return &r, nil
 }
 
+// convertToStelloriaPayload 把统一的任务请求转换成 Stelloria 的扁平请求体。
+//
+// 关键差异：duration 是字符串（"5s"），宽高比字段叫 aspect_ratio。
+// 参考图走 image_url，可以填 asset://<id> 素材引用。
+func (a *TaskAdaptor) convertToStelloriaPayload(req *relaycommon.TaskSubmitReq) *stelloriaRequestPayload {
+	r := &stelloriaRequestPayload{
+		Model:  req.Model,
+		Prompt: req.Prompt,
+	}
+
+	// 先从 metadata 取通用参数（resolution / seed / fps 等同名字段）
+	meta := req.Metadata
+	r.Resolution = metadataString(meta, "resolution")
+	// 宽高比：优先 aspect_ratio，其次沿用 Ark 风格的 ratio
+	r.AspectRatio = metadataString(meta, "aspect_ratio")
+	if r.AspectRatio == "" {
+		r.AspectRatio = metadataString(meta, "ratio")
+	}
+	if v, ok := metadataInt(meta, "fps"); ok {
+		r.FPS = lo.ToPtr(dto.IntValue(v))
+	}
+	if v, ok := metadataInt(meta, "seed"); ok {
+		r.Seed = lo.ToPtr(dto.IntValue(v))
+	}
+
+	// duration：上游要 "5s" 这样的字符串
+	seconds := 0
+	if s, _ := strconv.Atoi(req.Seconds); s > 0 {
+		seconds = s
+	} else if req.Duration > 0 {
+		seconds = req.Duration
+	} else if v, ok := metadataInt(meta, "duration"); ok {
+		seconds = v
+	}
+	if seconds > 0 {
+		r.Duration = fmt.Sprintf("%ds", seconds)
+	}
+
+	// 参考图：首帧优先，其次多图里的第一张
+	if req.Image != "" {
+		r.ImageURL = req.Image
+	} else if len(req.Images) > 0 {
+		r.ImageURL = req.Images[0]
+	} else {
+		r.ImageURL = metadataString(meta, "image_url")
+	}
+
+	// 多模态输入没法用单个 image_url 表达。下游显式传了 content 时原样透传，
+	// 让 asset:// 多素材引用可用；没传就不加这个未文档化的字段。
+	if raw, ok := meta["content"]; ok {
+		if encoded, err := common.Marshal(raw); err == nil {
+			var items []ContentItem
+			if err := common.Unmarshal(encoded, &items); err == nil && len(items) > 0 {
+				r.Content = items
+			}
+		}
+	}
+
+	return r
+}
+
+func metadataString(meta map[string]interface{}, key string) string {
+	if meta == nil {
+		return ""
+	}
+	if v, ok := meta[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func metadataInt(meta map[string]interface{}, key string) (int, bool) {
+	if meta == nil {
+		return 0, false
+	}
+	switch v := meta[key].(type) {
+	case float64:
+		return int(v), true
+	case int:
+		return v, true
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSuffix(v, "s")); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// parseStelloriaTaskResult 解析 Stelloria 的查询响应。
+// 状态取值是 processing / completed / failed，视频地址在 result.video_url。
+func parseStelloriaTaskResult(resp *stelloriaTaskResponse) *relaycommon.TaskInfo {
+	taskResult := relaycommon.TaskInfo{Code: 0}
+
+	switch strings.ToLower(resp.Status) {
+	case "pending", "queued":
+		taskResult.Status = model.TaskStatusQueued
+		taskResult.Progress = "10%"
+	case "processing", "running", "in_progress":
+		taskResult.Status = model.TaskStatusInProgress
+		taskResult.Progress = "50%"
+	case "completed", "succeeded", "success":
+		taskResult.Status = model.TaskStatusSuccess
+		taskResult.Progress = "100%"
+		taskResult.Url = resp.Result.VideoURL
+	case "failed", "error", "cancelled", "canceled":
+		taskResult.Status = model.TaskStatusFailure
+		taskResult.Progress = "100%"
+		taskResult.Reason = resp.Error
+	default:
+		taskResult.Status = model.TaskStatusInProgress
+		taskResult.Progress = "30%"
+	}
+
+	return &taskResult
+}
+
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
 	// 先尝试官方 Ark 格式
 	resTask := responseTask{}
 	if err := common.Unmarshal(respBody, &resTask); err == nil && resTask.ID != "" {
 		return parseArkTaskResult(&resTask)
+	}
+
+	// 再尝试 Stelloria 格式：顶层 task_id + status，视频地址在 result.video_url。
+	// 按响应形态识别而不是按 baseURL 判断，这样轮询与单测都不依赖适配器状态。
+	var stelloriaResp stelloriaTaskResponse
+	if err := common.Unmarshal(respBody, &stelloriaResp); err == nil &&
+		stelloriaResp.TaskID != "" && stelloriaResp.Status != "" {
+		return parseStelloriaTaskResult(&stelloriaResp), nil
 	}
 
 	// 再尝试 kkidc 格式
@@ -660,6 +875,25 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 			openAIVideo.Error = &dto.OpenAIVideoError{
 				Message: dResp.Error.Message,
 				Code:    dResp.Error.Code,
+			}
+		}
+		return common.Marshal(openAIVideo)
+	}
+
+	// 再尝试 Stelloria 格式
+	var stelloriaResp stelloriaTaskResponse
+	if err := common.Unmarshal(originTask.Data, &stelloriaResp); err == nil &&
+		stelloriaResp.TaskID != "" && stelloriaResp.Status != "" {
+		if stelloriaResp.Result.VideoURL != "" {
+			openAIVideo.SetMetadata("url", stelloriaResp.Result.VideoURL)
+		}
+		if stelloriaResp.Result.CoverURL != "" {
+			openAIVideo.SetMetadata("cover_url", stelloriaResp.Result.CoverURL)
+		}
+		if strings.EqualFold(stelloriaResp.Status, "failed") {
+			openAIVideo.Error = &dto.OpenAIVideoError{
+				Message: stelloriaResp.Error,
+				Code:    "upstream_error",
 			}
 		}
 		return common.Marshal(openAIVideo)

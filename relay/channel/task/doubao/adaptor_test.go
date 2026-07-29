@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
 // TestBuildUpstreamPath 锁定三种上游的路径拼接。
@@ -154,5 +155,112 @@ func TestParseArkTaskResultStillWorks(t *testing.T) {
 	}
 	if info.Url != "https://ark.example.com/out.mp4" {
 		t.Errorf("url = %q, want the ark video url", info.Url)
+	}
+}
+
+// TestStelloriaUpstreamPath 锁定 Stelloria 的路径。
+// 它与前三家都不同：提交是复数 videos，查询换到独立的 /v1/tasks 前缀。
+func TestStelloriaUpstreamPath(t *testing.T) {
+	a := &TaskAdaptor{baseURL: "https://stelloria.link"}
+	got, err := a.BuildRequestURL(nil)
+	if err != nil {
+		t.Fatalf("BuildRequestURL error: %v", err)
+	}
+	want := "https://stelloria.link/v1/videos/generations"
+	if got != want {
+		t.Errorf("BuildRequestURL = %q, want %q", got, want)
+	}
+	// 不能落到火山原生分支
+	if got == "https://stelloria.link/api/v3/contents/generations/tasks" {
+		t.Error("Stelloria 掉进了火山原生分支，会 404")
+	}
+}
+
+// TestParseStelloriaTaskResult 用文档里的真实响应验证解析。
+//
+// 与 seegen 那个坑同源：Stelloria 的视频地址在 result.video_url，
+// 状态是 completed 而不是 succeeded，两者都不匹配已有分支，
+// 不单独处理会返回 "unknown format"，任务永远轮询不出结果。
+func TestParseStelloriaTaskResult(t *testing.T) {
+	completed := []byte(`{
+  "task_id": "task-abc123def456",
+  "status": "completed",
+  "model": "seedance-2.0",
+  "result": {
+    "video_url": "https://cdn.example.com/video/output.mp4",
+    "duration": "5s",
+    "resolution": "1080p",
+    "cover_url": "https://cdn.example.com/video/cover.jpg"
+  }
+}`)
+
+	a := &TaskAdaptor{}
+	info, err := a.ParseTaskResult(completed)
+	if err != nil {
+		t.Fatalf("ParseTaskResult error: %v", err)
+	}
+	if info.Status != model.TaskStatusSuccess {
+		t.Errorf("status = %v, want %v", info.Status, model.TaskStatusSuccess)
+	}
+	if info.Url != "https://cdn.example.com/video/output.mp4" {
+		t.Errorf("url = %q, want the video url", info.Url)
+	}
+
+	processing := []byte(`{"task_id":"task-abc","status":"processing","model":"seedance-2.0"}`)
+	info, err = a.ParseTaskResult(processing)
+	if err != nil {
+		t.Fatalf("ParseTaskResult(processing) error: %v", err)
+	}
+	if info.Status != model.TaskStatusInProgress {
+		t.Errorf("processing 应映射为 InProgress，实际 %v", info.Status)
+	}
+
+	failed := []byte(`{"task_id":"task-abc","status":"failed","error":"content rejected"}`)
+	info, err = a.ParseTaskResult(failed)
+	if err != nil {
+		t.Fatalf("ParseTaskResult(failed) error: %v", err)
+	}
+	if info.Status != model.TaskStatusFailure {
+		t.Errorf("failed 应映射为 Failure，实际 %v", info.Status)
+	}
+	if info.Reason != "content rejected" {
+		t.Errorf("reason = %q, want the upstream error", info.Reason)
+	}
+}
+
+// TestStelloriaPayloadShape 验证扁平请求体的字段转换。
+// 重点：duration 必须是 "5s" 这样的字符串，宽高比字段叫 aspect_ratio。
+func TestStelloriaPayloadShape(t *testing.T) {
+	a := &TaskAdaptor{baseURL: "https://stelloria.link"}
+	req := relaycommon.TaskSubmitReq{
+		Model:  "moma-seedance-2.0",
+		Prompt: "一只金毛犬在海边奔跑",
+		Image:  "asset://asset-abc123",
+		Metadata: map[string]interface{}{
+			"duration":   float64(10),
+			"ratio":      "16:9",
+			"resolution": "1080p",
+		},
+	}
+
+	p := a.convertToStelloriaPayload(&req)
+	if p.Duration != "10s" {
+		t.Errorf("duration = %q, want \"10s\"（上游要字符串不是整数）", p.Duration)
+	}
+	if p.AspectRatio != "16:9" {
+		t.Errorf("aspect_ratio = %q, want 16:9", p.AspectRatio)
+	}
+	if p.Resolution != "1080p" {
+		t.Errorf("resolution = %q", p.Resolution)
+	}
+	if p.ImageURL != "asset://asset-abc123" {
+		t.Errorf("image_url = %q, 素材引用应原样透传", p.ImageURL)
+	}
+	if p.Prompt != "一只金毛犬在海边奔跑" {
+		t.Errorf("prompt = %q", p.Prompt)
+	}
+	// 下游没传 content 时不应塞这个未文档化的字段
+	if len(p.Content) != 0 {
+		t.Errorf("下游未传 content 时不应自行添加，实际 %d 项", len(p.Content))
 	}
 }

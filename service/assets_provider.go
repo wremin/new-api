@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -116,8 +118,70 @@ type AssetsProvider interface {
 // ErrCapabilityUnsupported 构造"当前上游不支持该能力"的错误。
 func ErrCapabilityUnsupported(provider ProviderName, capability string) *AssetsError {
 	return NewAssetsError(AssetErrUnsupported,
-		"upstream provider "+provider+" does not support "+capability,
+		"upstream provider "+PublicProviderName(provider)+" does not support "+capability,
 		http.StatusNotImplemented)
+}
+
+// ============================
+// 上游身份白标
+// ============================
+//
+// 内部标识符（stelloria / seegen）会落进 assets.provider 列并参与切换比对，
+// **绝对不能改**。这里只在响应边界做展示层替换，让下游看不到真实供应商是谁。
+
+// providerPublicNames 内部标识符 → 对外展示名。
+// 未列出的上游按原样展示。
+var providerPublicNames = map[ProviderName]string{
+	ProviderStelloria: "metamind",
+}
+
+// providerScrubPatterns 需要从透传文本里清洗掉的上游痕迹。
+// 顺序有意义：先替换更长的域名，再替换裸词，避免出现 "metamind.link" 这种半截结果。
+var providerScrubPatterns = []struct {
+	pattern     *regexp.Regexp
+	replacement string
+}{
+	{regexp.MustCompile(`(?i)stelloria\.link`), "metamind.yun"},
+	{regexp.MustCompile(`(?i)stelloria`), "metamind"},
+}
+
+// PublicProviderName 返回对外展示的上游名。
+func PublicProviderName(name ProviderName) string {
+	if public, ok := providerPublicNames[name]; ok {
+		return public
+	}
+	return name
+}
+
+// ScrubUpstreamText 清洗透传给下游的上游文本（错误信息等）中的供应商痕迹。
+//
+// 上游的报错常常带着自己的品牌与域名，原样透传等于把供应商暴露给客户。
+// 大小写按原文形态还原：Stelloria→Metamind、STELLORIA→METAMIND。
+func ScrubUpstreamText(s string) string {
+	if s == "" {
+		return s
+	}
+	for _, p := range providerScrubPatterns {
+		s = p.pattern.ReplaceAllStringFunc(s, func(match string) string {
+			return matchCase(match, p.replacement)
+		})
+	}
+	return s
+}
+
+// matchCase 让替换结果沿用原文的大小写形态。
+func matchCase(original, replacement string) string {
+	switch {
+	case original == strings.ToUpper(original) && original != strings.ToLower(original):
+		return strings.ToUpper(replacement)
+	case len(original) > 0 && unicode.IsUpper(rune(original[0])):
+		if len(replacement) == 0 {
+			return replacement
+		}
+		return strings.ToUpper(replacement[:1]) + replacement[1:]
+	default:
+		return replacement
+	}
 }
 
 // ============================

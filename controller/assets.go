@@ -122,7 +122,7 @@ func toAssetItem(a *model.Asset, verbose bool) dto.AssetItemResponse {
 		Url:        a.SourceUrl,
 		AssetRef:   model.BuildAssetRef(a.OfficialId),
 		FailReason: a.FailReason,
-		Provider:   a.Provider,
+		Provider:   service.PublicProviderName(a.Provider),
 		CreatedAt:  a.CreatedAt,
 		UpdatedAt:  a.UpdatedAt,
 	}
@@ -147,7 +147,7 @@ func assetCapabilities(c *gin.Context) {
 	provider := service.GetAssetsProvider(channel)
 	caps := provider.Capabilities()
 	c.JSON(http.StatusOK, dto.AssetCapabilitiesResponse{
-		Provider:      provider.Name(),
+		Provider:      service.PublicProviderName(provider.Name()),
 		BatchCreate:   caps.BatchCreate,
 		ExcelTemplate: caps.ExcelTemplate,
 		Regions:       caps.Regions,
@@ -237,7 +237,7 @@ func assetItemFromFields(f service.AssetFields, provider string) dto.AssetItemRe
 		Url:        f.Url,
 		AssetRef:   model.BuildAssetRef(f.OfficialId),
 		FailReason: f.FailReason,
-		Provider:   provider,
+		Provider:   service.PublicProviderName(provider),
 	}
 }
 
@@ -628,7 +628,7 @@ func assetGroupCreate(c *gin.Context) {
 		}
 	} else if region != "" {
 		assetError(c, http.StatusBadRequest, service.AssetErrUnsupported,
-			"current upstream provider "+provider.Name()+" has no region concept, please use groupType instead")
+			"current upstream provider "+service.PublicProviderName(provider.Name())+" has no region concept, please use groupType instead")
 		return
 	}
 
@@ -641,7 +641,7 @@ func assetGroupCreate(c *gin.Context) {
 		}
 	} else if groupType != "" {
 		assetError(c, http.StatusBadRequest, service.AssetErrUnsupported,
-			"current upstream provider "+provider.Name()+" has no groupType concept")
+			"current upstream provider "+service.PublicProviderName(provider.Name())+" has no groupType concept")
 		return
 	}
 
@@ -698,7 +698,7 @@ func toAssetGroupItem(g *model.AssetGroup, verbose bool) dto.AssetGroupItemRespo
 		Description: g.Description,
 		Region:      g.Region,
 		GroupType:   g.GroupType,
-		Provider:    g.Provider,
+		Provider:    service.PublicProviderName(g.Provider),
 		Count:       dto.AssetGroupCount{Assets: g.AssetCount},
 		CreatedAt:   g.CreatedAt,
 	}
@@ -757,7 +757,7 @@ func assetGet(c *gin.Context, officialId string) {
 	if asset.Provider != "" && asset.Provider != provider.Name() {
 		assetError(c, http.StatusConflict, service.AssetErrProviderMismatch,
 			fmt.Sprintf("asset %s was created on provider %q but current provider is %q",
-				officialId, asset.Provider, provider.Name()))
+				officialId, service.PublicProviderName(asset.Provider), service.PublicProviderName(provider.Name())))
 		return
 	}
 

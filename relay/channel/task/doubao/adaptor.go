@@ -157,10 +157,10 @@ func parseStelloriaResultDetail(resp *stelloriaTaskResponse) (*stelloriaResultDe
 // error 字段既可能是字符串也可能是 {"message":...} 对象，两种都要认。
 func stelloriaErrorMessage(resp *stelloriaTaskResponse) string {
 	if msg := flexibleErrorMessage(resp.Error); msg != "" {
-		return msg
+		return service.ScrubUpstreamText(msg)
 	}
 	if detail, ok := parseStelloriaResultDetail(resp); ok {
-		return flexibleErrorMessage(detail.Error)
+		return service.ScrubUpstreamText(flexibleErrorMessage(detail.Error))
 	}
 	return ""
 }
@@ -453,8 +453,13 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-// extractUpstreamErrorMsg 尝试从各种上游错误格式中提取可读错误信息
+// extractUpstreamErrorMsg 尝试从各种上游错误格式中提取可读错误信息。
+// 返回前统一清洗掉上游的品牌与域名痕迹，避免把真实供应商暴露给客户。
 func extractUpstreamErrorMsg(body []byte) string {
+	return service.ScrubUpstreamText(extractUpstreamErrorMsgRaw(body))
+}
+
+func extractUpstreamErrorMsgRaw(body []byte) string {
 	var m map[string]interface{}
 	if err := common.Unmarshal(body, &m); err != nil {
 		return string(body)

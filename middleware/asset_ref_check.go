@@ -140,7 +140,7 @@ func AssetRefCheck() func(c *gin.Context) {
 		if len(wrongProvider) > 0 {
 			abortWithAssetError(c, http.StatusConflict, service.AssetErrProviderMismatch,
 				fmt.Sprintf("assets were created on a different upstream provider (current: %s): %s",
-					currentProvider, strings.Join(wrongProvider, ", ")))
+					service.PublicProviderName(currentProvider), strings.Join(wrongProvider, ", ")))
 			return
 		}
 

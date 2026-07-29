@@ -107,7 +107,8 @@ func callStelloria(ctx context.Context, ch *model.Channel, method, path string, 
 func extractStelloriaError(body []byte) string {
 	var env stelloriaEnvelope
 	if err := common.Unmarshal(body, &env); err == nil && env.Message != "" {
-		return env.Message
+		// 上游报错常带自己的品牌与域名，透传前清洗掉
+		return ScrubUpstreamText(env.Message)
 	}
 	return ExtractUpstreamAssetError(body)
 }

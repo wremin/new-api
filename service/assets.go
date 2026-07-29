@@ -241,6 +241,10 @@ func buildAssetsUpstreamRequest(ctx context.Context, channel *model.Channel, req
 
 // ExtractUpstreamAssetError 从上游错误响应中提取可读信息。
 func ExtractUpstreamAssetError(body []byte) string {
+	return ScrubUpstreamText(extractUpstreamAssetErrorRaw(body))
+}
+
+func extractUpstreamAssetErrorRaw(body []byte) string {
 	var m map[string]any
 	if err := common.Unmarshal(body, &m); err != nil {
 		return strings.TrimSpace(string(body))

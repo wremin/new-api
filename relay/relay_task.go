@@ -221,7 +221,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
-	if resp != nil && resp.StatusCode != http.StatusOK {
+	// 接受任意 2xx，而不是只认 200。
+	//
+	// 创建型接口返回 201 Created 是完全正确的 REST 语义，seegen.ai 提交视频生成任务
+	// 就是这么做的。之前只认 200，会把一个已经在上游成功创建的任务判成失败：
+	// 下游拿到 fail_to_fetch_task，本地不落任务记录，而上游那边照常出片、无人认领。
+	if resp != nil && !isSuccessStatusCode(resp.StatusCode) {
 		responseBody, _ := io.ReadAll(resp.Body)
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
@@ -255,6 +260,16 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Platform:       platform,
 		Quota:          finalQuota,
 	}, nil
+}
+
+// isSuccessStatusCode 判断上游是否返回了成功状态。
+//
+// 任务类上游对"提交成功"的表达并不统一：有的返回 200，有的按 REST 语义返回
+// 201 Created，异步接口还可能返回 202 Accepted。这里统一按 2xx 判定，
+// 避免把成功当失败——那种情况最糟糕：上游任务已经建好并开始计费，
+// 下游却拿到错误、本地也不落记录，任务彻底失联。
+func isSuccessStatusCode(statusCode int) bool {
+	return statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices
 }
 
 // recalcQuotaFromRatios 根据 adjustedRatios 重新计算 quota。

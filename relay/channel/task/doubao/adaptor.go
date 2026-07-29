@@ -73,9 +73,11 @@ type responsePayload struct {
 // stelloriaRequestPayload 是 Stelloria 的扁平请求体，与 Ark 的 content[] 结构完全不同。
 //
 // duration 是字符串（"5s" / "10s"），不是整数秒；宽高比字段叫 aspect_ratio 而非 ratio。
-// Content 不在官方参数表里，但文档「注意事项」提到「content 数组中必须包含至少一个
-// text 类型元素」，且上游确实支持 asset:// 素材引用——多模态输入没有别的表达方式。
-// 因此仅当下游请求本身带了 content 时才透传，避免给简单的文生视频请求塞未文档化的字段。
+//
+// 只发官方参数表里列出的字段。文档「注意事项」里那句「content 数组中必须包含至少一个
+// text 类型元素」是从 seedance 原生文档抄漏的——实测把 content 一起发过去，
+// Stelloria 会回 502 "upstream returned empty task id"；去掉后同一请求立即成功。
+// 参考图走 image_url（可填 asset:// 素材引用），这是上游唯一支持的素材入口。
 type stelloriaRequestPayload struct {
 	Model       string        `json:"model"`
 	Prompt      string        `json:"prompt"`
@@ -85,22 +87,103 @@ type stelloriaRequestPayload struct {
 	Resolution  string        `json:"resolution,omitempty"`
 	FPS         *dto.IntValue `json:"fps,omitempty"`
 	Seed        *dto.IntValue `json:"seed,omitempty"`
-	Content     []ContentItem `json:"content,omitempty"`
 }
 
 // stelloriaTaskResponse 是 Stelloria 的提交与查询响应。
-// 提交时只有 task_id / status / model；查询完成后多一个 result。
+//
+// 实测的查询响应与官方文档不一致，以实测为准：
+//   - 视频地址在**顶层 result_url**，不是文档写的 result.video_url
+//   - result 里装的是上游（火山 Ark）的原始响应，形如
+//     {"id":"cgt-...","status":"succeeded","content":{"video_url":"..."},"usage":{...}}
+//
+// 因此 Result / Error 都用 json.RawMessage 延迟解析：上游形态会变，
+// 声明成固定结构一旦对不上就会导致整个响应 unmarshal 失败、任务永远轮询不出结果
+// （seegen 的 content 数组就是这么踩的）。
 type stelloriaTaskResponse struct {
-	TaskID string `json:"task_id"`
-	Status string `json:"status"`
-	Model  string `json:"model"`
-	Result struct {
-		VideoURL   string `json:"video_url"`
-		CoverURL   string `json:"cover_url"`
-		Duration   string `json:"duration"`
-		Resolution string `json:"resolution"`
-	} `json:"result"`
-	Error string `json:"error"`
+	TaskID    string          `json:"task_id"`
+	Status    string          `json:"status"`
+	Model     string          `json:"model"`
+	ResultURL string          `json:"result_url"`
+	Result    json.RawMessage `json:"result"`
+	Error     json.RawMessage `json:"error"`
+}
+
+// stelloriaResultDetail 是 result 字段内部可能出现的几种形态的并集。
+type stelloriaResultDetail struct {
+	Status    string          `json:"status"`
+	VideoURL  string          `json:"video_url"`
+	ResultURL string          `json:"result_url"`
+	Content   json.RawMessage `json:"content"`
+	Usage     struct {
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
+	Error json.RawMessage `json:"error"`
+}
+
+// stelloriaVideoURL 按优先级取视频地址，覆盖已知的全部形态。
+func stelloriaVideoURL(resp *stelloriaTaskResponse) string {
+	// 1. 顶层 result_url —— 实测就是这个
+	if resp.ResultURL != "" {
+		return resp.ResultURL
+	}
+	detail, ok := parseStelloriaResultDetail(resp)
+	if !ok {
+		return ""
+	}
+	if detail.ResultURL != "" {
+		return detail.ResultURL
+	}
+	// 2. 文档描述的 result.video_url
+	if detail.VideoURL != "" {
+		return detail.VideoURL
+	}
+	// 3. result.content —— 上游 Ark 原始响应，复用已有的三形态兼容解析
+	return extractVideoURL(detail.Content)
+}
+
+func parseStelloriaResultDetail(resp *stelloriaTaskResponse) (*stelloriaResultDetail, bool) {
+	if len(resp.Result) == 0 {
+		return nil, false
+	}
+	var detail stelloriaResultDetail
+	if err := common.Unmarshal(resp.Result, &detail); err != nil {
+		return nil, false
+	}
+	return &detail, true
+}
+
+// stelloriaErrorMessage 从顶层或 result 内部取错误信息。
+// error 字段既可能是字符串也可能是 {"message":...} 对象，两种都要认。
+func stelloriaErrorMessage(resp *stelloriaTaskResponse) string {
+	if msg := flexibleErrorMessage(resp.Error); msg != "" {
+		return msg
+	}
+	if detail, ok := parseStelloriaResultDetail(resp); ok {
+		return flexibleErrorMessage(detail.Error)
+	}
+	return ""
+}
+
+func flexibleErrorMessage(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var asString string
+	if err := common.Unmarshal(raw, &asString); err == nil {
+		return asString
+	}
+	var asObject struct {
+		Message string `json:"message"`
+		Reason  string `json:"reason"`
+	}
+	if err := common.Unmarshal(raw, &asObject); err == nil {
+		if asObject.Message != "" {
+			return asObject.Message
+		}
+		return asObject.Reason
+	}
+	return ""
 }
 
 // kkidc 响应结构体（OpenAI 兼容格式）
@@ -644,16 +727,12 @@ func (a *TaskAdaptor) convertToStelloriaPayload(req *relaycommon.TaskSubmitReq) 
 		r.ImageURL = metadataString(meta, "image_url")
 	}
 
-	// 多模态输入没法用单个 image_url 表达。下游显式传了 content 时原样透传，
-	// 让 asset:// 多素材引用可用；没传就不加这个未文档化的字段。
-	if raw, ok := meta["content"]; ok {
-		if encoded, err := common.Marshal(raw); err == nil {
-			var items []ContentItem
-			if err := common.Unmarshal(encoded, &items); err == nil && len(items) > 0 {
-				r.Content = items
-			}
-		}
-	}
+	// 刻意不透传下游的 content 数组。
+	//
+	// 很多客户端（包括按 seedance 原生格式写的脚本）会同时带 prompt 和 content，
+	// 但 Stelloria 收到 content 后会回 502 "upstream returned empty task id"，
+	// 去掉即成功——它显然把整个 body 转给自己的上游，多出来的字段会让那边失效。
+	// 这里直接丢弃，客户端不用改代码也能跑通。
 
 	return r
 }
@@ -700,11 +779,15 @@ func parseStelloriaTaskResult(resp *stelloriaTaskResponse) *relaycommon.TaskInfo
 	case "completed", "succeeded", "success":
 		taskResult.Status = model.TaskStatusSuccess
 		taskResult.Progress = "100%"
-		taskResult.Url = resp.Result.VideoURL
+		taskResult.Url = stelloriaVideoURL(resp)
+		if detail, ok := parseStelloriaResultDetail(resp); ok {
+			taskResult.CompletionTokens = detail.Usage.CompletionTokens
+			taskResult.TotalTokens = detail.Usage.TotalTokens
+		}
 	case "failed", "error", "cancelled", "canceled":
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = "100%"
-		taskResult.Reason = resp.Error
+		taskResult.Reason = stelloriaErrorMessage(resp)
 	default:
 		taskResult.Status = model.TaskStatusInProgress
 		taskResult.Progress = "30%"
@@ -884,15 +967,12 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	var stelloriaResp stelloriaTaskResponse
 	if err := common.Unmarshal(originTask.Data, &stelloriaResp); err == nil &&
 		stelloriaResp.TaskID != "" && stelloriaResp.Status != "" {
-		if stelloriaResp.Result.VideoURL != "" {
-			openAIVideo.SetMetadata("url", stelloriaResp.Result.VideoURL)
-		}
-		if stelloriaResp.Result.CoverURL != "" {
-			openAIVideo.SetMetadata("cover_url", stelloriaResp.Result.CoverURL)
+		if url := stelloriaVideoURL(&stelloriaResp); url != "" {
+			openAIVideo.SetMetadata("url", url)
 		}
 		if strings.EqualFold(stelloriaResp.Status, "failed") {
 			openAIVideo.Error = &dto.OpenAIVideoError{
-				Message: stelloriaResp.Error,
+				Message: stelloriaErrorMessage(&stelloriaResp),
 				Code:    "upstream_error",
 			}
 		}

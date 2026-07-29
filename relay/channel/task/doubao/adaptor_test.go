@@ -1,6 +1,7 @@
 package doubao
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -176,21 +177,29 @@ func TestStelloriaUpstreamPath(t *testing.T) {
 	}
 }
 
-// TestParseStelloriaTaskResult 用文档里的真实响应验证解析。
+// TestParseStelloriaTaskResult 用**线上实测**的响应验证解析。
 //
-// 与 seegen 那个坑同源：Stelloria 的视频地址在 result.video_url，
-// 状态是 completed 而不是 succeeded，两者都不匹配已有分支，
-// 不单独处理会返回 "unknown format"，任务永远轮询不出结果。
+// 注意这份报文与官方文档不一致，以实测为准：
+// 视频地址在顶层 result_url，而 result 里装的是上游火山 Ark 的原始响应
+// （content.video_url）。文档写的 result.video_url 根本不存在——
+// 按文档写会得到「任务成功但 URL 为空」。
 func TestParseStelloriaTaskResult(t *testing.T) {
+	const videoURL = "https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedance-2-0/0217853119587090.mp4?X-Tos-Expires=86400"
 	completed := []byte(`{
-  "task_id": "task-abc123def456",
+  "task_id": "task-d2fc5e66915049cb9ba2",
+  "model": "moma-seedance-2.0",
+  "type": "video",
   "status": "completed",
-  "model": "seedance-2.0",
+  "submitted_at": "2026-07-29T15:59:19",
+  "completed_at": "2026-07-29T16:03:05",
+  "result_url": "` + videoURL + `",
   "result": {
-    "video_url": "https://cdn.example.com/video/output.mp4",
-    "duration": "5s",
-    "resolution": "1080p",
-    "cover_url": "https://cdn.example.com/video/cover.jpg"
+    "id": "cgt-20260729155918-g2cc5",
+    "model": "doubao-seedance-2-0-260128",
+    "status": "succeeded",
+    "content": { "video_url": "` + videoURL + `" },
+    "usage": { "completion_tokens": 108900, "total_tokens": 108900 },
+    "resolution": "720p", "ratio": "16:9", "duration": 5
   }
 }`)
 
@@ -202,11 +211,31 @@ func TestParseStelloriaTaskResult(t *testing.T) {
 	if info.Status != model.TaskStatusSuccess {
 		t.Errorf("status = %v, want %v", info.Status, model.TaskStatusSuccess)
 	}
-	if info.Url != "https://cdn.example.com/video/output.mp4" {
-		t.Errorf("url = %q, want the video url", info.Url)
+	if info.Url != videoURL {
+		t.Errorf("url = %q, want %q", info.Url, videoURL)
+	}
+	if info.TotalTokens != 108900 {
+		t.Errorf("total_tokens = %d, want 108900（result.usage 应被提取）", info.TotalTokens)
 	}
 
-	processing := []byte(`{"task_id":"task-abc","status":"processing","model":"seedance-2.0"}`)
+	// 只有嵌套 content 没有顶层 result_url 时也要能取到
+	nestedOnly := []byte(`{"task_id":"t1","status":"completed","result":{"content":{"video_url":"https://x/a.mp4"}}}`)
+	info, err = a.ParseTaskResult(nestedOnly)
+	if err != nil {
+		t.Fatalf("ParseTaskResult(nested) error: %v", err)
+	}
+	if info.Url != "https://x/a.mp4" {
+		t.Errorf("嵌套形态未取到 url，实际 %q", info.Url)
+	}
+
+	// 文档描述的 result.video_url 形态也要兼容（万一上游改回去）
+	documented := []byte(`{"task_id":"t2","status":"completed","result":{"video_url":"https://x/b.mp4"}}`)
+	info, _ = a.ParseTaskResult(documented)
+	if info.Url != "https://x/b.mp4" {
+		t.Errorf("文档形态未取到 url，实际 %q", info.Url)
+	}
+
+	processing := []byte(`{"task_id":"task-abc","status":"processing","estimated_time":120}`)
 	info, err = a.ParseTaskResult(processing)
 	if err != nil {
 		t.Fatalf("ParseTaskResult(processing) error: %v", err)
@@ -214,17 +243,28 @@ func TestParseStelloriaTaskResult(t *testing.T) {
 	if info.Status != model.TaskStatusInProgress {
 		t.Errorf("processing 应映射为 InProgress，实际 %v", info.Status)
 	}
+}
 
-	failed := []byte(`{"task_id":"task-abc","status":"failed","error":"content rejected"}`)
-	info, err = a.ParseTaskResult(failed)
-	if err != nil {
-		t.Fatalf("ParseTaskResult(failed) error: %v", err)
+// TestStelloriaErrorShapes 失败时 error 既可能是字符串也可能是对象，
+// 声明成固定类型会让整个响应解析失败，必须两种都认。
+func TestStelloriaErrorShapes(t *testing.T) {
+	a := &TaskAdaptor{}
+	cases := map[string]string{
+		`{"task_id":"t","status":"failed","error":"content rejected"}`:                     "content rejected",
+		`{"task_id":"t","status":"failed","error":{"message":"nsfw detected"}}`:            "nsfw detected",
+		`{"task_id":"t","status":"failed","result":{"error":{"message":"upstream down"}}}`: "upstream down",
 	}
-	if info.Status != model.TaskStatusFailure {
-		t.Errorf("failed 应映射为 Failure，实际 %v", info.Status)
-	}
-	if info.Reason != "content rejected" {
-		t.Errorf("reason = %q, want the upstream error", info.Reason)
+	for body, want := range cases {
+		info, err := a.ParseTaskResult([]byte(body))
+		if err != nil {
+			t.Fatalf("ParseTaskResult(%s) error: %v", body, err)
+		}
+		if info.Status != model.TaskStatusFailure {
+			t.Errorf("%s: status = %v, want Failure", body, info.Status)
+		}
+		if info.Reason != want {
+			t.Errorf("%s: reason = %q, want %q", body, info.Reason, want)
+		}
 	}
 }
 
@@ -240,6 +280,11 @@ func TestStelloriaPayloadShape(t *testing.T) {
 			"duration":   float64(10),
 			"ratio":      "16:9",
 			"resolution": "1080p",
+			// 客户端常按 seedance 原生格式同时带 prompt 和 content，
+			// 但 Stelloria 收到 content 会回 502，必须丢弃
+			"content": []interface{}{
+				map[string]interface{}{"type": "text", "text": "一只金毛犬在海边奔跑"},
+			},
 		},
 	}
 
@@ -259,8 +304,13 @@ func TestStelloriaPayloadShape(t *testing.T) {
 	if p.Prompt != "一只金毛犬在海边奔跑" {
 		t.Errorf("prompt = %q", p.Prompt)
 	}
-	// 下游没传 content 时不应塞这个未文档化的字段
-	if len(p.Content) != 0 {
-		t.Errorf("下游未传 content 时不应自行添加，实际 %d 项", len(p.Content))
+	// 实测：带上 content 时 Stelloria 会回 502 "upstream returned empty task id"，
+	// 所以即便下游传了也必须丢弃。这里用序列化结果断言，防止字段被重新加回来。
+	encoded, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal payload error: %v", err)
+	}
+	if bytes.Contains(encoded, []byte(`"content"`)) {
+		t.Errorf("请求体不能包含 content 字段，实际: %s", encoded)
 	}
 }

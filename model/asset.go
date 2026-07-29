@@ -40,8 +40,11 @@ type Asset struct {
 	GroupOfficialId string `json:"group_official_id" gorm:"type:varchar(191);index"`
 	UserId          int    `json:"user_id" gorm:"index"`
 	// 单渠道模式下恒为同一值，保留以便后续多渠道演进（见 PRD §10）
-	ChannelId   int             `json:"channel_id" gorm:"index"`
-	TokenId     int             `json:"token_id"`
+	ChannelId int `json:"channel_id" gorm:"index"`
+	TokenId   int `json:"token_id"`
+	// Provider 记录素材创建时所用的上游实现（seegen / stelloria）。
+	// 上游可切换，但已存在的素材只在原上游有效，切换后需要凭此字段判断。
+	Provider    string          `json:"provider" gorm:"type:varchar(20);index"`
 	Region      string          `json:"region" gorm:"type:varchar(10);index"`
 	Name        string          `json:"name" gorm:"type:varchar(191)"`
 	AssetType   string          `json:"asset_type" gorm:"type:varchar(20);index"`
@@ -68,11 +71,15 @@ type AssetGroup struct {
 	ChannelId   int    `json:"channel_id" gorm:"index"`
 	Name        string `json:"name" gorm:"type:varchar(191)"`
 	Description string `json:"description" gorm:"type:text"`
-	Region      string `json:"region" gorm:"type:varchar(10);index"`
-	UpstreamId  int64  `json:"upstream_id"`
-	CreatedAt   int64  `json:"created_at" gorm:"index"`
-	UpdatedAt   int64  `json:"updated_at"`
-	DeletedAt   int64  `json:"deleted_at" gorm:"index"`
+	Provider    string `json:"provider" gorm:"type:varchar(20);index"`
+	// Region 仅 seegen 有（cn / intl）
+	Region string `json:"region" gorm:"type:varchar(10);index"`
+	// GroupType 仅 Stelloria 有（AIGC / LivenessFace）
+	GroupType  string `json:"group_type" gorm:"type:varchar(30)"`
+	UpstreamId int64  `json:"upstream_id"`
+	CreatedAt  int64  `json:"created_at" gorm:"index"`
+	UpdatedAt  int64  `json:"updated_at"`
+	DeletedAt  int64  `json:"deleted_at" gorm:"index"`
 
 	// 查询时聚合，不落库
 	AssetCount int `json:"asset_count" gorm:"-"`
@@ -236,7 +243,7 @@ func (a *Asset) Update() error {
 	}
 	a.UpdatedAt = common.GetTimestamp()
 	return DB.Model(a).Select(
-		"group_official_id", "region", "name", "asset_type", "source_url",
+		"group_official_id", "provider", "region", "name", "asset_type", "source_url",
 		"status", "upstream_id", "upstream_raw", "fail_reason", "updated_at",
 	).Updates(a).Error
 }

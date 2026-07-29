@@ -10,6 +10,10 @@ import "github.com/QuantumNous/new-api/setting/config"
 type AssetsSetting struct {
 	// 素材渠道 ID，0 = 自动探测
 	ChannelId int `json:"channel_id"`
+	// 上游实现：auto（默认，按渠道 base_url 探测）/ seegen / stelloria。
+	// 两家上游的协议差异极大，new-api 对下游统一暴露归一化契约，
+	// 切换上游只需要改这一个配置，不用重启。
+	Provider string `json:"provider"`
 	// 每用户每分钟素材接口调用次数上限，0 = 不限
 	RateLimitCount int `json:"rate_limit_count"`
 	// 单次批量上传条数上限（上游硬上限为 50）
@@ -23,6 +27,7 @@ type AssetsSetting struct {
 
 var assetsSetting = AssetsSetting{
 	ChannelId:       0,
+	Provider:        "auto",
 	RateLimitCount:  60,
 	BatchMaxItems:   50,
 	UserMaxTotal:    0,
@@ -39,6 +44,14 @@ func GetAssetsSetting() *AssetsSetting {
 
 func GetAssetsChannelId() int {
 	return assetsSetting.ChannelId
+}
+
+// GetAssetsProvider 返回配置的上游实现名；"auto" 或空表示由调用方按渠道 base_url 探测。
+func GetAssetsProvider() string {
+	if assetsSetting.Provider == "" {
+		return "auto"
+	}
+	return assetsSetting.Provider
 }
 
 func GetAssetsRateLimitCount() int {

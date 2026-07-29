@@ -24,13 +24,16 @@ import { copy, showError, showSuccess } from '../../helpers';
 import { useTableCompactMode } from '../common/useTableCompactMode';
 import {
   ASSET_RATE_LIMIT_CODE,
+  DEFAULT_ASSET_CAPABILITIES,
   createAssetGroup,
   fetchAssetGroups,
   isAssetChannelError,
   parseAssetError,
 } from '../../services/assets';
 
-export const useAssetGroupsData = () => {
+export const useAssetGroupsData = (
+  capabilities = DEFAULT_ASSET_CAPABILITIES,
+) => {
   const { t } = useTranslation();
 
   const [groups, setGroups] = useState([]);
@@ -103,6 +106,8 @@ export const useAssetGroupsData = () => {
   }, []);
 
   return {
+    // 上游能力（由 pages/Assets 拉取后透传）
+    capabilities,
     groups,
     loading,
     creating,

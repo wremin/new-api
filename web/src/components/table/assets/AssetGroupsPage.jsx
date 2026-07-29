@@ -26,17 +26,25 @@ import AssetsChannelEmpty from './AssetsChannelEmpty';
 import CreateAssetGroupModal from './modals/CreateAssetGroupModal';
 import { useAssetGroupsData } from '../../../hooks/assets/useAssetGroupsData';
 
-const AssetGroupsPage = () => {
-  const groupsData = useAssetGroupsData();
+const AssetGroupsPage = ({
+  capabilities,
+  capabilitiesLoading = false,
+  onConfigure,
+}) => {
+  const groupsData = useAssetGroupsData(capabilities);
 
   if (groupsData.channelError) {
     return (
       <AssetsChannelEmpty
         channelError={groupsData.channelError}
+        onConfigure={onConfigure}
         t={groupsData.t}
       />
     );
   }
+
+  // 能力未就绪前不展示依赖能力的控件，统一走表格的 loading 态
+  const pageData = { ...groupsData, capabilitiesLoading };
 
   return (
     <>
@@ -46,16 +54,17 @@ const AssetGroupsPage = () => {
         onCancel={() => groupsData.setShowCreateModal(false)}
         onSubmit={groupsData.createGroup}
         creating={groupsData.creating}
+        capabilities={groupsData.capabilities}
         t={groupsData.t}
       />
 
       <Layout>
         <CardPro
           type='type2'
-          statsArea={<AssetGroupsActions {...groupsData} />}
+          statsArea={<AssetGroupsActions {...pageData} />}
           t={groupsData.t}
         >
-          <AssetGroupsTable {...groupsData} />
+          <AssetGroupsTable {...pageData} />
         </CardPro>
       </Layout>
     </>

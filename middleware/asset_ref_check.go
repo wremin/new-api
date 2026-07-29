@@ -28,12 +28,17 @@ type assetRefModelRequest struct {
 // AssetRefCheck 校验生成任务中引用的 asset:// 素材。
 //
 // 单渠道模式下不需要锁渠道（素材与生成任务必然落在同一个上游账号），
-// 本中间件只做三类必然失败请求的前置拦截，让用户拿到明确错误而不是上游的一句
+// 本中间件把必然失败的请求在网关侧拦掉，让用户拿到明确错误而不是上游的一句
 // "invalid asset"：
 //
 //  1. 引用了不存在或不属于自己的素材 -> asset_not_found
 //  2. 引用了审核未通过的素材        -> asset_not_active
-//  3. cn 素材配 intl 模型（或反之） -> asset_region_mismatch
+//  3. 素材库不可用（未配置 / 渠道歧义）-> 直接透出渠道错误码
+//  4. 素材创建于另一个上游（切换后）  -> asset_provider_mismatch
+//  5. cn 素材配 intl 模型（或反之）  -> asset_region_mismatch
+//
+// 只要请求体里出现了 asset://，第 3 步起一律 fail closed：
+// 解析不出上游就直接报错，不放行。
 //
 // 请求体中不含 asset:// 时立即放行，对现有纯 URL 用法零影响。
 func AssetRefCheck() func(c *gin.Context) {
@@ -107,7 +112,46 @@ func AssetRefCheck() func(c *gin.Context) {
 			return
 		}
 
-		// 3. 区域一致性
+		// 3. 上游可解析性
+		//
+		// 走到这里说明请求确实引用了 asset://。此时如果连素材渠道都解析不出来，
+		// 这个引用就不可能有效——必须 fail closed 直接报错，而不是放行让它
+		// 带着一个解析不了的 asset:// 打到上游去换一句语焉不详的报错。
+		channel, aErr := service.GetAssetsChannel()
+		if aErr != nil {
+			status := aErr.StatusCode
+			if status == 0 {
+				status = http.StatusServiceUnavailable
+			}
+			abortWithAssetError(c, status, aErr.Code,
+				"request references asset:// but the asset library is unavailable: "+aErr.Message)
+			return
+		}
+		provider := service.GetAssetsProvider(channel)
+		currentProvider := provider.Name()
+
+		// 4. 上游一致性：素材只在创建它的那个上游有效，上游切换后旧素材必然失效
+		var wrongProvider []string
+		for _, id := range officialIds {
+			if p := assetMap[id].Provider; p != "" && p != currentProvider {
+				wrongProvider = append(wrongProvider, fmt.Sprintf("%s(%s)", id, p))
+			}
+		}
+		if len(wrongProvider) > 0 {
+			abortWithAssetError(c, http.StatusConflict, service.AssetErrProviderMismatch,
+				fmt.Sprintf("assets were created on a different upstream provider (current: %s): %s",
+					currentProvider, strings.Join(wrongProvider, ", ")))
+			return
+		}
+
+		// 5. 区域一致性
+		//
+		// 只有带区域概念的上游（seegen）才做这一步。
+		// Stelloria 没有 cn/intl 的划分，此处必须跳过，否则会误伤全部请求。
+		if !provider.Capabilities().Regions {
+			c.Next()
+			return
+		}
 		var modelReq assetRefModelRequest
 		if err := common.UnmarshalBodyReusable(c, &modelReq); err == nil {
 			modelRegion := constant.GetSeedanceModelRegion(modelReq.Model)

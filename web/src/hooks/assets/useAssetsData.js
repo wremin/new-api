@@ -26,6 +26,7 @@ import { useTableCompactMode } from '../common/useTableCompactMode';
 import {
   ASSET_RATE_LIMIT_CODE,
   ASSET_STATUS,
+  DEFAULT_ASSET_CAPABILITIES,
   deleteAsset,
   fetchAssetGroups,
   fetchAssets,
@@ -37,7 +38,7 @@ import {
 // 存在处理中素材时的轮询间隔（毫秒）
 export const ASSET_POLL_INTERVAL = 15000;
 
-export const useAssetsData = () => {
+export const useAssetsData = (capabilities = DEFAULT_ASSET_CAPABILITIES) => {
   const { t } = useTranslation();
 
   // Basic state
@@ -207,16 +208,18 @@ export const useAssetsData = () => {
     }
   };
 
-  // 素材组下拉选项
+  // 素材组下拉选项：有区域的上游标注区域，否则标注素材组类型
   const groupOptions = useMemo(
     () =>
-      groups.map((group) => ({
-        label: group.region
-          ? `${group.name} (${group.region})`
-          : group.name || group.officialId,
-        value: group.officialId,
-      })),
-    [groups],
+      groups.map((group) => {
+        const label = group.name || group.officialId;
+        const suffix = capabilities.regions ? group.region : group.groupType;
+        return {
+          label: suffix ? `${label} (${suffix})` : label,
+          value: group.officialId,
+        };
+      }),
+    [groups, capabilities.regions],
   );
 
   // officialId / id 双向索引，便于把素材上的 groupId 还原成素材组
@@ -259,6 +262,9 @@ export const useAssetsData = () => {
   }, [hasPendingAssets, channelError, activePage, pageSize]);
 
   return {
+    // 上游能力（由 pages/Assets 拉取后透传）
+    capabilities,
+
     // Basic state
     assets,
     loading,

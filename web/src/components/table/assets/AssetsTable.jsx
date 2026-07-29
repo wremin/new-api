@@ -37,6 +37,8 @@ const AssetsTable = (assetsData) => {
     refreshAssetStatus,
     removeAsset,
     refreshingId,
+    capabilities,
+    capabilitiesLoading,
     t,
   } = assetsData;
 
@@ -50,6 +52,7 @@ const AssetsTable = (assetsData) => {
         refreshAssetStatus,
         removeAsset,
         refreshingId,
+        capabilities,
       }),
     [
       t,
@@ -59,6 +62,7 @@ const AssetsTable = (assetsData) => {
       refreshAssetStatus,
       removeAsset,
       refreshingId,
+      capabilities,
     ],
   );
 
@@ -73,7 +77,7 @@ const AssetsTable = (assetsData) => {
       columns={tableColumns}
       dataSource={assets}
       rowKey='key'
-      loading={loading}
+      loading={loading || capabilitiesLoading}
       scroll={compactMode ? undefined : { x: 'max-content' }}
       className='rounded-xl overflow-hidden'
       size='middle'

@@ -28,6 +28,8 @@ const (
 	AssetErrUpstream             = "asset_upstream_error"
 	AssetErrInvalidRequest       = "asset_invalid_request"
 	AssetErrQuotaExceeded        = "asset_quota_exceeded"
+	AssetErrUnsupported          = "asset_unsupported_by_provider"
+	AssetErrProviderMismatch     = "asset_provider_mismatch"
 )
 
 // assetsChannelTypes 是可以承载素材接口的渠道类型。
@@ -262,16 +264,21 @@ func ExtractUpstreamAssetError(body []byte) string {
 // ============================
 
 // AssetFields 是从上游素材响应（或下游请求体）中提取的、需要落库的字段。
+// 这是各 provider 之间的归一化中间形态：seegen 的 officialId 与 Stelloria 的 assetId
+// 都落到 OfficialId，其余字段同理，见各 provider 的 parse 函数。
 type AssetFields struct {
 	OfficialId string
 	GroupId    string
 	Name       string
 	Status     string
+	// Region 仅 seegen 有（cn / intl）；Stelloria 下恒为空
 	Region     string
 	Url        string
 	AssetType  string
 	UpstreamId int64
 	FailReason string
+	// Raw 是上游原始响应，落库备查
+	Raw []byte
 }
 
 // AssetFallbackFields 构造用于兜底的字段集合：
@@ -370,20 +377,17 @@ func applyUpstreamFields(asset *model.Asset, f AssetFields) {
 	}
 }
 
-// RecordUploadedAsset 在上游上传成功后写入归属记录。
-// requestFields 是从下游请求体中取到的字段（批量 JSON 路径下可按 index 对齐），
-// 上游响应中的同名字段优先级更高。
-func RecordUploadedAsset(userId, tokenId, channelId int, upstreamRaw []byte, fallback AssetFields) (*model.Asset, error) {
-	var raw map[string]any
-	_ = common.Unmarshal(upstreamRaw, &raw)
-	f := parseUpstreamAsset(raw)
-
-	// 上游没回显的字段，用请求体里的值兜底
+// RecordUploadedAsset 在上游创建成功后写入归属记录。
+//
+// fields 是 provider 已经归一化过的字段；fallback 补齐上游没有回显的部分
+// （典型如 Stelloria 的创建接口只回 assetId 与 assetName）。
+func RecordUploadedAsset(userId, tokenId, channelId int, provider ProviderName, fields AssetFields, fallback AssetFields) (*model.Asset, error) {
+	f := fields
 	if f.OfficialId == "" {
 		f.OfficialId = fallback.OfficialId
 	}
 	if f.OfficialId == "" {
-		return nil, errors.New("upstream response has no officialId")
+		return nil, errors.New("upstream response has no asset id")
 	}
 	if f.GroupId == "" {
 		f.GroupId = fallback.GroupId
@@ -412,11 +416,12 @@ func RecordUploadedAsset(userId, tokenId, channelId int, upstreamRaw []byte, fal
 		UserId:     userId,
 		TokenId:    tokenId,
 		ChannelId:  channelId,
+		Provider:   provider,
 		Status:     f.Status,
 	}
 	applyUpstreamFields(asset, f)
-	if len(upstreamRaw) > 0 {
-		asset.UpstreamRaw = upstreamRaw
+	if len(f.Raw) > 0 {
+		asset.UpstreamRaw = f.Raw
 	}
 	if err := asset.Insert(); err != nil {
 		return nil, err
@@ -424,46 +429,31 @@ func RecordUploadedAsset(userId, tokenId, channelId int, upstreamRaw []byte, fal
 	return asset, nil
 }
 
-// ApplyUpstreamAssetResponse 把一次上游素材响应合并进本地记录并落库。
-// 供控制器在透传 GET /v1/assets/{id} 的同时顺手刷新本地状态。
-func ApplyUpstreamAssetResponse(asset *model.Asset, upstreamRaw []byte) error {
-	var raw map[string]any
-	if err := common.Unmarshal(upstreamRaw, &raw); err != nil {
-		return err
+// ApplyUpstreamAssetFields 把一次上游查询结果合并进本地记录并落库。
+func ApplyUpstreamAssetFields(asset *model.Asset, fields AssetFields) error {
+	applyUpstreamFields(asset, fields)
+	if len(fields.Raw) > 0 {
+		asset.UpstreamRaw = fields.Raw
 	}
-	applyUpstreamFields(asset, parseUpstreamAsset(raw))
-	asset.UpstreamRaw = upstreamRaw
 	return asset.Update()
 }
 
-// SyncAssetFromUpstream 调用上游单查接口，回填/刷新本地记录。
+// SyncAssetFromUpstream 调用上游单查接口，回填 / 刷新本地记录。
 //
 // 这同时承担两件事，且它们本来就是同一个动作：
-//  1. 审核状态轮询（上游在 status=Processing 时会自动同步最新状态）；
-//  2. Excel 批量上传路径的字段回填（name / groupId / region / url）。
+//  1. 审核状态轮询；
+//  2. 创建接口未回显字段的回填（seegen 的 Excel 批量路径、Stelloria 的创建响应都只回 ID）。
 func SyncAssetFromUpstream(ctx context.Context, channel *model.Channel, asset *model.Asset) error {
-	resp, aErr := DoAssetsUpstreamRequest(ctx, channel, AssetsUpstreamRequest{
-		Method: http.MethodGet,
-		Path:   "/v1/assets/" + url.PathEscape(asset.OfficialId),
-	})
+	provider := GetAssetsProvider(channel)
+	fields, aErr := provider.GetAsset(ctx, channel, asset.OfficialId)
 	if aErr != nil {
-		return aErr
-	}
-	if !resp.IsSuccess() {
 		// 素材在上游已被删除时，本地标记为已删除而不是反复重试
-		if resp.StatusCode == http.StatusNotFound {
+		if aErr.StatusCode == http.StatusNotFound {
 			return asset.SoftDelete()
 		}
-		return errors.New(ExtractUpstreamAssetError(resp.Body))
+		return aErr
 	}
-
-	var raw map[string]any
-	if err := common.Unmarshal(resp.Body, &raw); err != nil {
-		return err
-	}
-	applyUpstreamFields(asset, parseUpstreamAsset(raw))
-	asset.UpstreamRaw = resp.Body
-	return asset.Update()
+	return ApplyUpstreamAssetFields(asset, fields)
 }
 
 // SyncPendingAssets 批量同步用户名下待处理的素材（Processing 或字段未回填）。

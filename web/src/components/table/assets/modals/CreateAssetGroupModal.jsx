@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Banner,
   Input,
@@ -28,6 +28,7 @@ import {
   Typography,
 } from '@douyinfe/semi-ui';
 import { showError } from '../../../../helpers';
+import { DEFAULT_ASSET_CAPABILITIES } from '../../../../services/assets';
 
 const { Text } = Typography;
 
@@ -36,25 +37,39 @@ const CreateAssetGroupModal = ({
   onCancel,
   onSubmit,
   creating,
+  capabilities,
   t,
 }) => {
+  const caps = capabilities || DEFAULT_ASSET_CAPABILITIES;
+  // 有区域的上游（seegen）用 region，无区域的上游（stelloria）用 groupType，二者互斥
+  const groupTypes = useMemo(() => caps.groupTypes || [], [caps.groupTypes]);
+  const defaultGroupType = groupTypes[0] || '';
+
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [region, setRegion] = useState('cn');
+  const [groupType, setGroupType] = useState(defaultGroupType);
 
   useEffect(() => {
     if (!visible) return;
     setName('');
     setDescription('');
     setRegion('cn');
-  }, [visible]);
+    setGroupType(defaultGroupType);
+  }, [visible, defaultGroupType]);
 
   const handleOk = async () => {
     if (!name.trim()) {
       showError(t('请输入素材组名称'));
       return;
     }
-    const payload = { name: name.trim(), region };
+    const payload = { name: name.trim() };
+    // 只能带上上游支持的那一个字段，否则后端会返回 asset_unsupported_by_provider
+    if (caps.regions) {
+      payload.region = region;
+    } else if (groupType) {
+      payload.groupType = groupType;
+    }
     if (description.trim()) payload.description = description.trim();
     await onSubmit?.(payload);
   };
@@ -100,31 +115,64 @@ const CreateAssetGroupModal = ({
           />
         </div>
 
-        {/* 区域 */}
-        <div>
-          <div className='mb-1'>
-            <Text size='small'>
-              {t('区域')}
-              <span className='text-semi-color-danger ml-1'>*</span>
-            </Text>
+        {/* 区域（仅支持区域的上游） */}
+        {caps.regions ? (
+          <div>
+            <div className='mb-1'>
+              <Text size='small'>
+                {t('区域')}
+                <span className='text-semi-color-danger ml-1'>*</span>
+              </Text>
+            </div>
+            <RadioGroup
+              type='button'
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+            >
+              <Radio value='cn'>{t('国内版 cn')}</Radio>
+              <Radio value='intl'>{t('国际版 intl')}</Radio>
+            </RadioGroup>
+            <Banner
+              type='danger'
+              closeIcon={null}
+              className='!rounded-lg mt-2'
+              description={t(
+                '区域一经创建不可修改，请谨慎选择：使用国际版或大尺度模型时必须选择 intl，否则该素材组下的素材将无法使用。',
+              )}
+            />
           </div>
-          <RadioGroup
-            type='button'
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-          >
-            <Radio value='cn'>{t('国内版 cn')}</Radio>
-            <Radio value='intl'>{t('国际版 intl')}</Radio>
-          </RadioGroup>
-          <Banner
-            type='danger'
-            closeIcon={null}
-            className='!rounded-lg mt-2'
-            description={t(
-              '区域一经创建不可修改，请谨慎选择：使用国际版或大尺度模型时必须选择 intl，否则该素材组下的素材将无法使用。',
-            )}
-          />
-        </div>
+        ) : null}
+
+        {/* 素材组类型（无区域但有类型的上游） */}
+        {!caps.regions && groupTypes.length > 0 ? (
+          <div>
+            <div className='mb-1'>
+              <Text size='small'>
+                {t('素材组类型')}
+                <span className='text-semi-color-danger ml-1'>*</span>
+              </Text>
+            </div>
+            <RadioGroup
+              type='button'
+              value={groupType}
+              onChange={(e) => setGroupType(e.target.value)}
+            >
+              {groupTypes.map((item) => (
+                <Radio key={item} value={item}>
+                  {item}
+                </Radio>
+              ))}
+            </RadioGroup>
+            <Banner
+              type='danger'
+              closeIcon={null}
+              className='!rounded-lg mt-2'
+              description={t(
+                '素材组类型一经创建不可修改，请谨慎选择：该类型决定素材组可用于哪些模型能力。',
+              )}
+            />
+          </div>
+        ) : null}
       </div>
     </Modal>
   );

@@ -18,21 +18,21 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { Button, Card, Empty, Typography } from '@douyinfe/semi-ui';
 import {
   IllustrationConstruction,
   IllustrationConstructionDark,
 } from '@douyinfe/semi-illustrations';
-import { isAdmin } from '../../../helpers';
+import { isRoot } from '../../../helpers';
 
 const { Text } = Typography;
 
 /**
  * 素材渠道未配置 / 存在多个可用渠道时的空状态。
- * 普通用户只提示联系管理员，管理员额外展示前往运营设置的入口。
+ * 只有 root 能改这项配置（后端 RootAuth），因此只对 root 提供入口，
+ * 直接在本页打开素材库设置；其余用户只看到说明文案。
  */
-const AssetsChannelEmpty = ({ channelError, t }) => {
+const AssetsChannelEmpty = ({ channelError, onConfigure, t }) => {
   const isAmbiguous = channelError?.code === 'assets_channel_ambiguous';
   const description = isAmbiguous
     ? t('检测到多个可用的素材渠道，请管理员在运营设置中指定唯一的素材渠道。')
@@ -54,12 +54,20 @@ const AssetsChannelEmpty = ({ channelError, t }) => {
             {channelError.message}
           </Text>
         ) : null}
-        {isAdmin() ? (
-          <Link to='/console/setting' className='inline-block mt-4'>
-            <Button type='primary' theme='solid' size='small'>
-              {t('前往运营设置')}
-            </Button>
-          </Link>
+        {/*
+          只有 root 能改素材渠道配置（后端是 RootAuth），因此只对 root 给操作入口。
+          非 root 管理员既没有权限，运营设置页也没有对应字段，给链接只会把人带到死路上。
+        */}
+        {isRoot() && onConfigure ? (
+          <Button
+            type='primary'
+            theme='solid'
+            size='small'
+            className='mt-4'
+            onClick={onConfigure}
+          >
+            {t('配置素材渠道')}
+          </Button>
         ) : null}
       </Empty>
     </Card>

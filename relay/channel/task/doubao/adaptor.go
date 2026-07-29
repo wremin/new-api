@@ -2,6 +2,7 @@ package doubao
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -99,18 +100,21 @@ type kkidcQueryResponse struct {
 }
 
 type responseTask struct {
-	ID      string `json:"id"`
-	Model   string `json:"model"`
-	Status  string `json:"status"`
-	Content struct {
-		VideoURL string `json:"video_url"`
-	} `json:"content"`
-	Seed            int    `json:"seed"`
-	Resolution      string `json:"resolution"`
-	Duration        int    `json:"duration"`
-	Ratio           string `json:"ratio"`
-	FramesPerSecond int    `json:"framespersecond"`
-	ServiceTier     string `json:"service_tier"`
+	ID     string `json:"id"`
+	Model  string `json:"model"`
+	Status string `json:"status"`
+	// Content 的形态在不同上游之间不一致，必须延迟解析：
+	//   火山原生 Ark: {"content": {"video_url": "https://..."}}
+	//   seegen.ai:    {"content": [{"type":"video_url","video_url":{"url":"https://..."}}]}
+	// 如果声明成固定结构，遇到另一种形态会导致整个响应 unmarshal 失败，
+	// 表现为任务能提交但永远轮询不出结果。用 extractVideoURL 统一兼容。
+	Content         json.RawMessage `json:"content"`
+	Seed            int             `json:"seed"`
+	Resolution      string          `json:"resolution"`
+	Duration        int             `json:"duration"`
+	Ratio           string          `json:"ratio"`
+	FramesPerSecond int             `json:"framespersecond"`
+	ServiceTier     string          `json:"service_tier"`
 	Tools           []struct {
 		Type string `json:"type"`
 	} `json:"tools"`
@@ -152,12 +156,30 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
 }
 
+// isKKIDCBaseURL 判断上游是否为 kkidc 网关（OpenAI 兼容协议）。
+func isKKIDCBaseURL(baseURL string) bool {
+	return strings.Contains(baseURL, "kkidc")
+}
+
+// isSeegenBaseURL 判断上游是否为 seegen.ai。
+//
+// seegen 的请求/响应参数与火山 Ark 一致，但路径前缀是 /v1 而不是 /api/v3，
+// 所以只需要单独处理 URL，请求体构造仍走 Ark 分支。
+func isSeegenBaseURL(baseURL string) bool {
+	return strings.Contains(baseURL, "seegen")
+}
+
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
 	// kkidc 使用 OpenAI 兼容路径 /v1/video/generations
-	if strings.Contains(a.baseURL, "kkidc") {
+	if isKKIDCBaseURL(a.baseURL) {
 		return fmt.Sprintf("%s/v1/video/generations", a.baseURL), nil
 	}
+	// seegen.ai 使用 /v1/contents/generations/tasks
+	if isSeegenBaseURL(a.baseURL) {
+		return fmt.Sprintf("%s/v1/contents/generations/tasks", a.baseURL), nil
+	}
+	// 火山引擎原生 Ark
 	return fmt.Sprintf("%s/api/v3/contents/generations/tasks", a.baseURL), nil
 }
 
@@ -361,9 +383,12 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 
 	var uri string
-	if strings.Contains(baseUrl, "kkidc") {
+	switch {
+	case isKKIDCBaseURL(baseUrl):
 		uri = fmt.Sprintf("%s/v1/video/generations/%s", baseUrl, taskID)
-	} else {
+	case isSeegenBaseURL(baseUrl):
+		uri = fmt.Sprintf("%s/v1/contents/generations/tasks/%s", baseUrl, taskID)
+	default:
 		uri = fmt.Sprintf("%s/api/v3/contents/generations/tasks/%s", baseUrl, taskID)
 	}
 
@@ -392,7 +417,9 @@ func (a *TaskAdaptor) GetChannelName() string {
 }
 
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*requestPayload, error) {
-	isKKIDC := strings.Contains(a.baseURL, "kkidc")
+	// seegen 与火山原生 Ark 共用同一套请求体格式，只有 URL 不同，
+	// 因此这里只需要区分 kkidc（OpenAI 兼容格式）与其余。
+	isKKIDC := isKKIDCBaseURL(a.baseURL)
 
 	r := requestPayload{
 		Model: req.Model,
@@ -495,6 +522,58 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	return nil, errors.New("unmarshal task result failed, unknown format")
 }
 
+// extractVideoURL 从 content 字段中取出视频地址，兼容三种已知形态：
+//
+//  1. 火山原生 Ark:  {"video_url": "https://..."}
+//  2. seegen.ai:     [{"type":"video_url","video_url":{"url":"https://..."}}]
+//  3. 对象嵌套形态:  {"video_url": {"url": "https://..."}}
+//
+// 解析不出来时返回空串，由调用方按"任务未完成"处理，而不是让整个响应解析失败。
+func extractVideoURL(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	// 形态 2：数组
+	var items []map[string]any
+	if err := common.Unmarshal(raw, &items); err == nil {
+		for _, item := range items {
+			if url := videoURLFromMap(item); url != "" {
+				return url
+			}
+		}
+		return ""
+	}
+
+	// 形态 1 / 3：对象
+	var obj map[string]any
+	if err := common.Unmarshal(raw, &obj); err == nil {
+		return videoURLFromMap(obj)
+	}
+
+	return ""
+}
+
+// videoURLFromMap 从单个 content 元素里取 video_url，值可能是字符串或 {"url": "..."}。
+func videoURLFromMap(item map[string]any) string {
+	if item == nil {
+		return ""
+	}
+	for _, key := range []string{"video_url", "url"} {
+		switch v := item[key].(type) {
+		case string:
+			if v != "" {
+				return v
+			}
+		case map[string]any:
+			if nested, ok := v["url"].(string); ok && nested != "" {
+				return nested
+			}
+		}
+	}
+	return ""
+}
+
 func parseArkTaskResult(resTask *responseTask) (*relaycommon.TaskInfo, error) {
 	taskResult := relaycommon.TaskInfo{
 		Code: 0,
@@ -510,7 +589,7 @@ func parseArkTaskResult(resTask *responseTask) (*relaycommon.TaskInfo, error) {
 	case "succeeded":
 		taskResult.Status = model.TaskStatusSuccess
 		taskResult.Progress = "100%"
-		taskResult.Url = resTask.Content.VideoURL
+		taskResult.Url = extractVideoURL(resTask.Content)
 		taskResult.CompletionTokens = resTask.Usage.CompletionTokens
 		taskResult.TotalTokens = resTask.Usage.TotalTokens
 	case "failed":
@@ -576,7 +655,7 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	// 先尝试官方 Ark 格式
 	var dResp responseTask
 	if err := common.Unmarshal(originTask.Data, &dResp); err == nil && dResp.ID != "" {
-		openAIVideo.SetMetadata("url", dResp.Content.VideoURL)
+		openAIVideo.SetMetadata("url", extractVideoURL(dResp.Content))
 		if dResp.Status == "failed" {
 			openAIVideo.Error = &dto.OpenAIVideoError{
 				Message: dResp.Error.Message,

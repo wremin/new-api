@@ -37,7 +37,10 @@ import {
   Video,
 } from 'lucide-react';
 import { timestamp2string } from '../../../helpers';
-import { ASSET_STATUS } from '../../../services/assets';
+import {
+  ASSET_STATUS,
+  DEFAULT_ASSET_CAPABILITIES,
+} from '../../../services/assets';
 
 const { Text } = Typography;
 
@@ -123,6 +126,24 @@ const renderRegion = (region, t) => {
   );
 };
 
+// 素材创建时的上游与当前上游不一致：这些素材无法再使用或刷新
+// （后端返回 asset_provider_mismatch / HTTP 409）
+const isProviderMismatch = (record, provider) =>
+  Boolean(provider && record?.provider && record.provider !== provider);
+
+const renderProviderMismatch = (record, provider, t) => {
+  if (!isProviderMismatch(record, provider)) {
+    return null;
+  }
+  return (
+    <Tooltip content={t('该素材属于已切换的上游，无法继续使用或刷新。')}>
+      <Tag color='grey' shape='circle' size='small'>
+        {t('上游已切换')}
+      </Tag>
+    </Tooltip>
+  );
+};
+
 const renderStatus = (record, t) => {
   switch (record.status) {
     case ASSET_STATUS.PROCESSING:
@@ -166,135 +187,182 @@ export const getAssetsColumns = ({
   refreshAssetStatus,
   removeAsset,
   refreshingId,
-}) => [
-  {
-    title: t('预览'),
-    dataIndex: 'preview',
-    key: 'preview',
-    width: 80,
-    render: (_, record) => renderPreview(record, t),
-  },
-  {
-    title: t('名称'),
-    dataIndex: 'name',
-    key: 'name',
-    render: (name) =>
-      name ? (
-        <Text ellipsis={{ showTooltip: true }} style={{ maxWidth: 200 }}>
-          {name}
-        </Text>
-      ) : (
-        renderPlaceholder(t)
-      ),
-  },
-  {
-    title: t('类型'),
-    dataIndex: 'assetType',
-    key: 'assetType',
-    render: (assetType) => renderAssetType(assetType, t),
-  },
-  {
-    title: t('素材组'),
-    dataIndex: 'groupId',
-    key: 'groupId',
-    render: (groupId) => {
-      if (!groupId) return renderPlaceholder(t);
-      const group = groupMap?.[groupId];
-      return (
-        <Tag
-          color='white'
-          shape='circle'
-          className='cursor-pointer'
-          onClick={() => filterByGroup(groupId)}
-        >
-          {group?.name || groupId}
-        </Tag>
-      );
+  capabilities,
+}) => {
+  const caps = capabilities || DEFAULT_ASSET_CAPABILITIES;
+  // 无区域的上游改用素材组类型，合并展示在「素材组」列里
+  const showGroupType = (caps.groupTypes || []).length > 0;
+
+  return [
+    {
+      title: t('预览'),
+      dataIndex: 'preview',
+      key: 'preview',
+      width: 80,
+      render: (_, record) => renderPreview(record, t),
     },
-  },
-  {
-    title: t('区域'),
-    dataIndex: 'region',
-    key: 'region',
-    render: (region, record) => {
-      const resolved = region || groupMap?.[record.groupId]?.region || '';
-      return renderRegion(resolved, t);
-    },
-  },
-  {
-    title: t('状态'),
-    dataIndex: 'status',
-    key: 'status',
-    render: (_, record) => renderStatus(record, t),
-  },
-  {
-    title: t('引用'),
-    dataIndex: 'assetRef',
-    key: 'assetRef',
-    render: (assetRef) =>
-      assetRef ? (
+    {
+      title: t('名称'),
+      dataIndex: 'name',
+      key: 'name',
+      render: (name, record) => (
         <Space spacing={4}>
-          <Text
-            code
-            ellipsis={{ showTooltip: true }}
-            style={{ maxWidth: 220 }}
-          >
-            {assetRef}
-          </Text>
+          {name ? (
+            <Text ellipsis={{ showTooltip: true }} style={{ maxWidth: 200 }}>
+              {name}
+            </Text>
+          ) : (
+            renderPlaceholder(t)
+          )}
+          {renderProviderMismatch(record, caps.provider, t)}
+        </Space>
+      ),
+    },
+    {
+      title: t('类型'),
+      dataIndex: 'assetType',
+      key: 'assetType',
+      render: (assetType) => renderAssetType(assetType, t),
+    },
+    {
+      title: t('素材组'),
+      dataIndex: 'groupId',
+      key: 'groupId',
+      render: (groupId) => {
+        if (!groupId) return renderPlaceholder(t);
+        const group = groupMap?.[groupId];
+        const groupType = showGroupType ? group?.groupType : '';
+        return (
+          <Space spacing={4}>
+            <Tag
+              color='white'
+              shape='circle'
+              className='cursor-pointer'
+              onClick={() => filterByGroup(groupId)}
+            >
+              {group?.name || groupId}
+            </Tag>
+            {groupType ? (
+              <Tag color='violet' shape='circle' size='small'>
+                {groupType}
+              </Tag>
+            ) : null}
+          </Space>
+        );
+      },
+    },
+    caps.regions
+      ? {
+          title: t('区域'),
+          dataIndex: 'region',
+          key: 'region',
+          render: (region, record) => {
+            const resolved = region || groupMap?.[record.groupId]?.region || '';
+            return renderRegion(resolved, t);
+          },
+        }
+      : null,
+    {
+      title: t('状态'),
+      dataIndex: 'status',
+      key: 'status',
+      render: (_, record) => renderStatus(record, t),
+    },
+    {
+      title: t('引用'),
+      dataIndex: 'assetRef',
+      key: 'assetRef',
+      render: (assetRef) =>
+        assetRef ? (
+          <Space spacing={4}>
+            <Text
+              code
+              ellipsis={{ showTooltip: true }}
+              style={{ maxWidth: 220 }}
+            >
+              {assetRef}
+            </Text>
+            <Button
+              type='tertiary'
+              theme='borderless'
+              size='small'
+              icon={<Copy size={14} />}
+              onClick={() => copyText(assetRef)}
+            />
+          </Space>
+        ) : (
+          renderPlaceholder(t)
+        ),
+    },
+    {
+      title: t('创建时间'),
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (createdAt) =>
+        createdAt ? (
+          <Text size='small'>{timestamp2string(createdAt)}</Text>
+        ) : (
+          renderPlaceholder(t)
+        ),
+    },
+    {
+      title: t('操作'),
+      dataIndex: 'operate',
+      key: 'operate',
+      fixed: 'right',
+      render: (_, record) => {
+        // 上游已切换的素材拉不到上游状态，刷新必定 409，只保留删除做本地清理
+        const mismatched = isProviderMismatch(record, caps.provider);
+        const refreshButton = (
           <Button
             type='tertiary'
             theme='borderless'
             size='small'
-            icon={<Copy size={14} />}
-            onClick={() => copyText(assetRef)}
-          />
-        </Space>
-      ) : (
-        renderPlaceholder(t)
-      ),
-  },
-  {
-    title: t('创建时间'),
-    dataIndex: 'createdAt',
-    key: 'createdAt',
-    render: (createdAt) =>
-      createdAt ? (
-        <Text size='small'>{timestamp2string(createdAt)}</Text>
-      ) : (
-        renderPlaceholder(t)
-      ),
-  },
-  {
-    title: t('操作'),
-    dataIndex: 'operate',
-    key: 'operate',
-    fixed: 'right',
-    render: (_, record) => (
-      <Space spacing={4}>
-        <Button
-          type='tertiary'
-          theme='borderless'
-          size='small'
-          icon={<RefreshCw size={14} />}
-          loading={refreshingId === record.officialId}
-          onClick={() => refreshAssetStatus(record)}
-        >
-          {t('刷新状态')}
-        </Button>
-        <Popconfirm
-          title={t('确定删除该素材？')}
-          content={t('删除后引用该素材的请求将会失败，且无法恢复。')}
-          okText={t('删除')}
-          cancelText={t('取消')}
-          okType='danger'
-          position='topRight'
-          onConfirm={() => removeAsset(record)}
-        >
-          <Button type='danger' theme='borderless' size='small'>
-            {t('删除')}
+            icon={<RefreshCw size={14} />}
+            loading={!mismatched && refreshingId === record.officialId}
+            disabled={mismatched}
+            onClick={() => refreshAssetStatus(record)}
+          >
+            {t('刷新状态')}
           </Button>
-        </Popconfirm>
-      </Space>
-    ),
-  },
-];
+        );
+
+        return (
+          <Space spacing={4}>
+            {mismatched ? (
+              <Tooltip
+                content={t(
+                  '该素材创建于另一个上游，当前上游无法读取它的状态，因此不能刷新。',
+                )}
+              >
+                {/* 禁用的按钮不会触发鼠标事件，需要包一层才能显示 Tooltip */}
+                <span className='inline-flex'>{refreshButton}</span>
+              </Tooltip>
+            ) : (
+              refreshButton
+            )}
+            <Popconfirm
+              title={t('确定删除该素材？')}
+              content={
+                mismatched
+                  ? t(
+                      '该素材创建于另一个上游，删除只会清理本地记录，不会改动上游数据。',
+                    )
+                  : t('删除后引用该素材的请求将会失败，且无法恢复。')
+              }
+              okText={t('删除')}
+              cancelText={t('取消')}
+              okType='danger'
+              position='topRight'
+              onConfirm={() => removeAsset(record)}
+            >
+              <Button type='danger' theme='borderless' size='small'>
+                {t('删除')}
+              </Button>
+            </Popconfirm>
+          </Space>
+        );
+      },
+    },
+  ].filter(Boolean);
+};

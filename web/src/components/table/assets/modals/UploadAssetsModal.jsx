@@ -33,6 +33,7 @@ import { Copy, Download, FileText } from 'lucide-react';
 import { showError, showSuccess } from '../../../../helpers';
 import {
   ASSET_BATCH_MAX,
+  DEFAULT_ASSET_CAPABILITIES,
   createAsset,
   createAssetsBatch,
   downloadAssetTemplate,
@@ -48,10 +49,15 @@ const UploadAssetsModal = ({
   groupOptions,
   groups,
   groupsLoading,
+  capabilities,
   copyText,
   handleAssetError,
   t,
 }) => {
+  const caps = capabilities || DEFAULT_ASSET_CAPABILITIES;
+  // 上游不支持批量创建时退化为单条
+  const maxItems = caps.batchCreate ? caps.batchMaxItems || ASSET_BATCH_MAX : 1;
+
   const [groupId, setGroupId] = useState('');
   const [urlsText, setUrlsText] = useState('');
   const [name, setName] = useState('');
@@ -92,8 +98,12 @@ const UploadAssetsModal = ({
       showError(t('请至少填写一个素材 URL'));
       return;
     }
-    if (urls.length > ASSET_BATCH_MAX) {
-      showError(t('单次最多上传 50 个素材'));
+    if (urls.length > maxItems) {
+      showError(
+        caps.batchCreate
+          ? t('单次最多上传 {{max}} 个素材', { max: maxItems })
+          : t('当前上游不支持批量上传，请一次只填写一个 URL'),
+      );
       return;
     }
 
@@ -238,7 +248,9 @@ const UploadAssetsModal = ({
             value={urlsText}
             onChange={(value) => setUrlsText(value)}
             autosize={{ minRows: 4, maxRows: 10 }}
-            placeholder={t('每行一个 URL，单次最多 50 个')}
+            placeholder={t('每行一个 URL，单次最多 {{max}} 个', {
+              max: maxItems,
+            })}
           />
           <Text type='tertiary' size='small' className='block mt-1'>
             {t('已填写 {{total}} 个 URL', { total: urls.length })}
@@ -259,77 +271,81 @@ const UploadAssetsModal = ({
           />
         </div>
 
-        <Divider margin='4px' />
+        {/* Excel 批量上传：仅在上游支持模板时展示 */}
+        {caps.excelTemplate ? (
+          <>
+            <Divider margin='4px' />
 
-        {/* Excel 批量上传 */}
-        <div>
-          <div className='flex items-center gap-2 mb-2'>
-            <FileText size={14} />
-            <Text size='small' strong>
-              {t('Excel 批量上传')}
-            </Text>
-          </div>
-
-          <div className='flex flex-wrap items-center gap-2'>
-            <Button
-              type='tertiary'
-              size='small'
-              icon={<Download size={14} />}
-              loading={templateLoading}
-              onClick={handleDownloadTemplate}
-            >
-              {t('下载模板')}
-            </Button>
-
-            {selectedGroup ? (
-              <div className='flex items-center gap-1'>
-                <Text type='tertiary' size='small'>
-                  {t('当前素材组 ID')}
+            <div>
+              <div className='flex items-center gap-2 mb-2'>
+                <FileText size={14} />
+                <Text size='small' strong>
+                  {t('Excel 批量上传')}
                 </Text>
-                <Tag color='white' shape='circle'>
-                  {selectedGroup.officialId}
-                </Tag>
+              </div>
+
+              <div className='flex flex-wrap items-center gap-2'>
                 <Button
                   type='tertiary'
-                  theme='borderless'
                   size='small'
-                  icon={<Copy size={14} />}
-                  onClick={() => copyText?.(selectedGroup.officialId)}
+                  icon={<Download size={14} />}
+                  loading={templateLoading}
+                  onClick={handleDownloadTemplate}
+                >
+                  {t('下载模板')}
+                </Button>
+
+                {selectedGroup ? (
+                  <div className='flex items-center gap-1'>
+                    <Text type='tertiary' size='small'>
+                      {t('当前素材组 ID')}
+                    </Text>
+                    <Tag color='white' shape='circle'>
+                      {selectedGroup.officialId}
+                    </Tag>
+                    <Button
+                      type='tertiary'
+                      theme='borderless'
+                      size='small'
+                      icon={<Copy size={14} />}
+                      onClick={() => copyText?.(selectedGroup.officialId)}
+                    />
+                  </div>
+                ) : (
+                  <Text type='tertiary' size='small'>
+                    {t('请先选择素材组以获取素材组 ID')}
+                  </Text>
+                )}
+
+                <Button
+                  type='primary'
+                  size='small'
+                  loading={excelUploading}
+                  disabled={excelUploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {t('选择 Excel 文件')}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type='file'
+                  accept='.xlsx'
+                  className='hidden'
+                  onChange={handleExcelChange}
                 />
               </div>
-            ) : (
-              <Text type='tertiary' size='small'>
-                {t('请先选择素材组以获取素材组 ID')}
-              </Text>
-            )}
 
-            <Button
-              type='primary'
-              size='small'
-              loading={excelUploading}
-              disabled={excelUploading}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {t('选择 Excel 文件')}
-            </Button>
-            <input
-              ref={fileInputRef}
-              type='file'
-              accept='.xlsx'
-              className='hidden'
-              onChange={handleExcelChange}
-            />
-          </div>
-
-          <Banner
-            type='warning'
-            closeIcon={null}
-            className='!rounded-lg mt-2'
-            description={t(
-              '服务端不会解析表格里的素材组，请先复制上方的素材组 ID，并手动填入表格的 groupId 列，否则素材会归入错误的素材组。',
-            )}
-          />
-        </div>
+              <Banner
+                type='warning'
+                closeIcon={null}
+                className='!rounded-lg mt-2'
+                description={t(
+                  '服务端不会解析表格里的素材组，请先复制上方的素材组 ID，并手动填入表格的 groupId 列，否则素材会归入错误的素材组。',
+                )}
+              />
+            </div>
+          </>
+        ) : null}
 
         {/* 批量结果 */}
         {batchResult ? (

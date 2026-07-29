@@ -30,6 +30,7 @@ const AssetGroupsActions = ({
   setShowCreateModal,
   loadGroups,
   loading,
+  capabilitiesLoading,
   t,
 }) => {
   return (
@@ -45,6 +46,8 @@ const AssetGroupsActions = ({
           size='small'
           icon={<Plus size={14} />}
           className='w-full md:w-auto'
+          loading={capabilitiesLoading}
+          disabled={capabilitiesLoading}
           onClick={() => setShowCreateModal(true)}
         >
           {t('新建素材组')}

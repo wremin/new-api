@@ -1,11 +1,9 @@
 package controller
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -19,6 +17,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// 素材接口对下游暴露**归一化契约**，不再原样透传上游响应。
+//
+// 原因：上游可切换（seegen / Stelloria），两家的路径、字段名、响应包装完全不同。
+// 如果透传，客户端换个上游就得改代码，网关就失去意义了。
+// 字段名沿用 seegen 的形态（officialId / name / status / region），
+// 保证已按 seegen 文档接入的客户端不受影响。
 
 // assetError 返回 OpenAI 风格的错误体，与 relay 侧其他接口保持一致。
 func assetError(c *gin.Context, status int, code, message string) {
@@ -40,14 +45,14 @@ func assetServiceError(c *gin.Context, err *service.AssetsError) {
 	assetError(c, status, err.Code, err.Message)
 }
 
-// resolveAssetsChannel 取本期唯一的素材渠道，失败时已写入响应。
-func resolveAssetsChannel(c *gin.Context) (*model.Channel, bool) {
+// resolveAssetsProvider 取本期唯一的素材渠道及其上游实现，失败时已写入响应。
+func resolveAssetsProvider(c *gin.Context) (*model.Channel, service.AssetsProvider, bool) {
 	channel, aErr := service.GetAssetsChannel()
 	if aErr != nil {
 		assetServiceError(c, aErr)
-		return nil, false
+		return nil, nil, false
 	}
-	return channel, true
+	return channel, service.GetAssetsProvider(channel), true
 }
 
 // checkAssetWritePermission 校验写入类操作的前置条件。
@@ -117,6 +122,7 @@ func toAssetItem(a *model.Asset, verbose bool) dto.AssetItemResponse {
 		Url:        a.SourceUrl,
 		AssetRef:   model.BuildAssetRef(a.OfficialId),
 		FailReason: a.FailReason,
+		Provider:   a.Provider,
 		CreatedAt:  a.CreatedAt,
 		UpdatedAt:  a.UpdatedAt,
 	}
@@ -127,11 +133,37 @@ func toAssetItem(a *model.Asset, verbose bool) dto.AssetItemResponse {
 }
 
 // ============================
+// GET /v1/assets/capabilities
+// ============================
+
+// assetCapabilities 让前端与客户端知道当前上游支持哪些能力，
+// 从而隐藏 / 禁用不可用的入口，而不是发一个注定 501 的请求。
+func assetCapabilities(c *gin.Context) {
+	channel, aErr := service.GetAssetsChannel()
+	if aErr != nil {
+		assetServiceError(c, aErr)
+		return
+	}
+	provider := service.GetAssetsProvider(channel)
+	caps := provider.Capabilities()
+	c.JSON(http.StatusOK, dto.AssetCapabilitiesResponse{
+		Provider:      provider.Name(),
+		BatchCreate:   caps.BatchCreate,
+		ExcelTemplate: caps.ExcelTemplate,
+		Regions:       caps.Regions,
+		GroupTypes:    caps.GroupTypes,
+		RenameAsset:   caps.RenameAsset,
+		DeleteGroup:   caps.DeleteGroup,
+		BatchMaxItems: operation_setting.GetAssetsBatchMaxItems(),
+	})
+}
+
+// ============================
 // POST /v1/assets
 // ============================
 
 func RelayAssetCreate(c *gin.Context) {
-	channel, ok := resolveAssetsChannel(c)
+	channel, provider, ok := resolveAssetsProvider(c)
 	if !ok {
 		return
 	}
@@ -154,46 +186,59 @@ func RelayAssetCreate(c *gin.Context) {
 		return
 	}
 
-	rawBody, err := readAssetRequestBody(c)
-	if err != nil {
-		assetError(c, http.StatusBadRequest, service.AssetErrInvalidRequest,
-			"failed to read request body: "+err.Error())
-		return
-	}
+	userId, tokenId := assetRequestUser(c)
+	// 只需要 region：它要落进素材记录供后续的区域一致性校验使用。
+	// groupType 是素材组级属性，创建素材时上游不接收该字段，所以这里用不到。
+	region, _ := lookupGroupMeta(userId, req.GroupId)
 
-	resp, aErr := service.DoAssetsUpstreamRequest(c.Request.Context(), channel, service.AssetsUpstreamRequest{
-		Method:      http.MethodPost,
-		Path:        "/v1/assets",
-		Body:        rawBody,
-		ContentType: "application/json",
+	fields, aErr := provider.CreateAsset(c.Request.Context(), channel, service.CreateAssetInput{
+		GroupId:   req.GroupId,
+		Url:       req.Url,
+		Name:      req.GetName(),
+		AssetType: req.GetAssetType(),
 	})
 	if aErr != nil {
 		assetServiceError(c, aErr)
 		return
 	}
-	if !resp.IsSuccess() {
-		assetError(c, resp.StatusCode, service.AssetErrUpstream, service.ExtractUpstreamAssetError(resp.Body))
-		return
-	}
-
-	userId, tokenId := assetRequestUser(c)
-	// 素材组的 region 用于生成任务的区域一致性校验，本地有记录时带上
-	region := ""
-	if group, exist, gErr := model.GetAssetGroupByOfficialId(userId, req.GroupId); gErr == nil && exist {
-		region = group.Region
-	}
-
-	_, err = service.RecordUploadedAsset(userId, tokenId, channel.Id, resp.Body, service.AssetFallbackFields(
-		"", req.GroupId, req.GetName(), req.Url, region,
-	))
+	asset, err := service.RecordUploadedAsset(userId, tokenId, channel.Id, provider.Name(), fields,
+		service.AssetFallbackFields("", req.GroupId, req.GetName(), req.Url, region))
 	if err != nil {
 		// 落库失败不影响用户拿到上游结果，但必须记日志：
 		// 归属记录缺失会导致该素材后续无法被查询/引用。
 		logger.LogError(c.Request.Context(),
 			fmt.Sprintf("failed to record uploaded asset for user %d: %s", userId, err.Error()))
+		c.JSON(http.StatusOK, assetItemFromFields(fields, provider.Name()))
+		return
 	}
+	c.JSON(http.StatusOK, toAssetItem(asset, false))
+}
 
-	writeUpstreamJSON(c, resp.StatusCode, resp.Body)
+// lookupGroupMeta 取素材组在本地记录的 region / groupType，用于补齐上游未回显的字段。
+func lookupGroupMeta(userId int, groupOfficialId string) (region string, groupType string) {
+	if groupOfficialId == "" {
+		return "", ""
+	}
+	group, exist, err := model.GetAssetGroupByOfficialId(userId, groupOfficialId)
+	if err != nil || !exist {
+		return "", ""
+	}
+	return group.Region, group.GroupType
+}
+
+func assetItemFromFields(f service.AssetFields, provider string) dto.AssetItemResponse {
+	return dto.AssetItemResponse{
+		OfficialId: f.OfficialId,
+		GroupId:    f.GroupId,
+		Name:       f.Name,
+		Status:     f.Status,
+		Region:     f.Region,
+		AssetType:  f.AssetType,
+		Url:        f.Url,
+		AssetRef:   model.BuildAssetRef(f.OfficialId),
+		FailReason: f.FailReason,
+		Provider:   provider,
+	}
 }
 
 // ============================
@@ -207,8 +252,7 @@ func RelayAssetList(c *gin.Context) {
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
 	// 状态同步是同步的上游 HTTP 调用，默认不在列表接口里做，避免拖慢响应。
-	// 前端轮询与用户主动刷新时带 refresh=true，此时才回源同步：
-	// 这同时完成审核状态刷新与 Excel 批量上传路径下 name/groupId 等空字段的回填。
+	// 前端轮询与用户主动刷新时带 refresh=true，此时才回源同步。
 	if c.Query("refresh") == "true" {
 		if channel, aErr := service.GetAssetsChannel(); aErr == nil {
 			service.SyncPendingAssets(c.Request.Context(), channel, userId, 20)
@@ -262,6 +306,12 @@ func RelayAssetDispatch(c *gin.Context) {
 	action := strings.Trim(c.Param("action"), "/")
 
 	switch {
+	case action == "capabilities":
+		if c.Request.Method != http.MethodGet {
+			assetMethodNotAllowed(c)
+			return
+		}
+		assetCapabilities(c)
 	case action == "batch":
 		if c.Request.Method != http.MethodPost {
 			assetMethodNotAllowed(c)
@@ -311,22 +361,25 @@ func assetMethodNotAllowed(c *gin.Context) {
 // ============================
 
 func assetBatchUpload(c *gin.Context) {
-	channel, ok := resolveAssetsChannel(c)
+	channel, provider, ok := resolveAssetsProvider(c)
 	if !ok {
 		return
 	}
 
 	contentType := c.Request.Header.Get("Content-Type")
 	if strings.HasPrefix(contentType, "multipart/form-data") {
-		assetBatchUploadExcel(c, channel, contentType)
+		assetBatchUploadExcel(c, channel, provider, contentType)
 		return
 	}
-	assetBatchUploadJSON(c, channel)
+	assetBatchUploadJSON(c, channel, provider)
 }
 
 // assetBatchUploadJSON 处理 JSON 数组批量上传。
-// 上游按 index 回显 officialId，可与请求体数组下标对齐，因此能一次写全归属记录。
-func assetBatchUploadJSON(c *gin.Context, channel *model.Channel) {
+//
+// 结果按 index 与请求体数组对齐，因此能一次写全归属记录。
+// 上游没有原生批量接口时（Stelloria），provider 会退化成循环单条创建，
+// 对下游的响应形态完全一致。
+func assetBatchUploadJSON(c *gin.Context, channel *model.Channel, provider service.AssetsProvider) {
 	var items []dto.AssetCreateRequest
 	if err := common.UnmarshalBodyReusable(c, &items); err != nil {
 		assetError(c, http.StatusBadRequest, service.AssetErrInvalidRequest,
@@ -359,42 +412,53 @@ func assetBatchUploadJSON(c *gin.Context, channel *model.Channel) {
 		return
 	}
 
-	rawBody, err := readAssetRequestBody(c)
-	if err != nil {
-		assetError(c, http.StatusBadRequest, service.AssetErrInvalidRequest,
-			"failed to read request body: "+err.Error())
-		return
+	ins := make([]service.CreateAssetInput, 0, len(items))
+	for _, item := range items {
+		ins = append(ins, service.CreateAssetInput{
+			GroupId:   item.GroupId,
+			Url:       item.Url,
+			Name:      item.GetName(),
+			AssetType: item.GetAssetType(),
+		})
 	}
 
-	resp, aErr := service.DoAssetsUpstreamRequest(c.Request.Context(), channel, service.AssetsUpstreamRequest{
-		Method:      http.MethodPost,
-		Path:        "/v1/assets/batch",
-		Body:        rawBody,
-		ContentType: "application/json",
-	})
+	batchId, results, aErr := provider.BatchCreateAssets(c.Request.Context(), channel, ins)
 	if aErr != nil {
 		assetServiceError(c, aErr)
 		return
 	}
-	if !resp.IsSuccess() {
-		assetError(c, resp.StatusCode, service.AssetErrUpstream, service.ExtractUpstreamAssetError(resp.Body))
-		return
-	}
 
-	var batchResp dto.AssetBatchResponse
-	if err := common.Unmarshal(resp.Body, &batchResp); err == nil {
-		recordBatchAssets(c, channel, batchResp, items)
-	} else {
-		logger.LogError(c.Request.Context(),
-			"failed to parse batch upload response, asset ownership not recorded: "+err.Error())
-	}
+	recordBatchAssets(c, channel, provider, batchId, results, items)
+	c.JSON(http.StatusOK, dto.AssetBatchResponse{
+		BatchId: batchId,
+		Total:   len(results),
+		Results: toBatchResultDTO(results),
+	})
+}
 
-	writeUpstreamJSON(c, resp.StatusCode, resp.Body)
+func toBatchResultDTO(results []service.BatchItemResult) []dto.AssetBatchResultItem {
+	out := make([]dto.AssetBatchResultItem, 0, len(results))
+	for _, r := range results {
+		out = append(out, dto.AssetBatchResultItem{
+			Index:      r.Index,
+			Status:     r.Status,
+			OfficialId: r.OfficialId,
+			Error:      r.Error,
+		})
+	}
+	return out
 }
 
 // recordBatchAssets 按 index 把上游结果与请求体对齐后落库。
 // items 为 nil 时（Excel 路径）只写 officialId 等最小字段，其余交给异步回填。
-func recordBatchAssets(c *gin.Context, channel *model.Channel, batchResp dto.AssetBatchResponse, items []dto.AssetCreateRequest) {
+func recordBatchAssets(
+	c *gin.Context,
+	channel *model.Channel,
+	provider service.AssetsProvider,
+	batchId string,
+	results []service.BatchItemResult,
+	items []dto.AssetCreateRequest,
+) {
 	userId, tokenId := assetRequestUser(c)
 
 	// 预取素材组 region，避免逐条查库
@@ -406,16 +470,13 @@ func recordBatchAssets(c *gin.Context, channel *model.Channel, batchResp dto.Ass
 		if r, ok := regionCache[groupId]; ok {
 			return r
 		}
-		region := ""
-		if group, exist, err := model.GetAssetGroupByOfficialId(userId, groupId); err == nil && exist {
-			region = group.Region
-		}
+		region, _ := lookupGroupMeta(userId, groupId)
 		regionCache[groupId] = region
 		return region
 	}
 
-	assets := make([]*model.Asset, 0, len(batchResp.Results))
-	for _, result := range batchResp.Results {
+	assets := make([]*model.Asset, 0, len(results))
+	for _, result := range results {
 		if result.Status != "ok" || result.OfficialId == "" {
 			continue
 		}
@@ -424,8 +485,9 @@ func recordBatchAssets(c *gin.Context, channel *model.Channel, batchResp dto.Ass
 			UserId:     userId,
 			TokenId:    tokenId,
 			ChannelId:  channel.Id,
+			Provider:   provider.Name(),
 			Status:     model.AssetStatusProcessing,
-			BatchId:    batchResp.BatchId,
+			BatchId:    batchId,
 		}
 		// JSON 路径下可以按 index 对齐请求体；Excel 路径下 items 为 nil，字段留空待回填
 		if items != nil && result.Index >= 0 && result.Index < len(items) {
@@ -447,9 +509,15 @@ func recordBatchAssets(c *gin.Context, channel *model.Channel, batchResp dto.Ass
 
 // assetBatchUploadExcel 处理 Excel 批量上传。
 //
-// 已确认本期不解析 Excel（见 PRD §3.5）：new-api 只能从上游响应拿到 officialId，
+// 仅 seegen 支持；Stelloria 没有表格上传接口，provider 会返回 501。
+// seegen 路径下 new-api 不解析表格，只能从响应拿到 officialId，
 // name / groupId / region / url 全部留空，由 SyncPendingAssets 异步回填。
-func assetBatchUploadExcel(c *gin.Context, channel *model.Channel, contentType string) {
+func assetBatchUploadExcel(c *gin.Context, channel *model.Channel, provider service.AssetsProvider, contentType string) {
+	if !provider.Capabilities().ExcelTemplate {
+		assetServiceError(c, service.ErrCapabilityUnsupported(provider.Name(), "excel batch upload"))
+		return
+	}
+
 	maxBytes := operation_setting.GetAssetsUploadMaxBytes()
 	if c.Request.ContentLength > maxBytes {
 		assetError(c, http.StatusRequestEntityTooLarge, service.AssetErrInvalidRequest,
@@ -472,43 +540,32 @@ func assetBatchUploadExcel(c *gin.Context, channel *model.Channel, contentType s
 		return
 	}
 
-	resp, aErr := service.DoAssetsUpstreamRequest(c.Request.Context(), channel, service.AssetsUpstreamRequest{
-		Method:      http.MethodPost,
-		Path:        "/v1/assets/batch",
-		RawBody:     bytes.NewReader(rawBody),
-		ContentType: contentType,
-	})
+	batchId, results, aErr := provider.BatchCreateFromExcel(c.Request.Context(), channel, contentType, rawBody)
 	if aErr != nil {
 		assetServiceError(c, aErr)
 		return
 	}
-	if !resp.IsSuccess() {
-		assetError(c, resp.StatusCode, service.AssetErrUpstream, service.ExtractUpstreamAssetError(resp.Body))
-		return
-	}
 
-	var batchResp dto.AssetBatchResponse
-	if err := common.Unmarshal(resp.Body, &batchResp); err == nil {
-		recordBatchAssets(c, channel, batchResp, nil)
-	} else {
-		logger.LogError(c.Request.Context(),
-			"failed to parse excel batch response, asset ownership not recorded: "+err.Error())
-	}
-
-	writeUpstreamJSON(c, resp.StatusCode, resp.Body)
+	recordBatchAssets(c, channel, provider, batchId, results, nil)
+	c.JSON(http.StatusOK, dto.AssetBatchResponse{
+		BatchId: batchId,
+		Total:   len(results),
+		Results: toBatchResultDTO(results),
+	})
 }
 
 // assetBatchTemplate 二进制流式透传 Excel 模板。
 func assetBatchTemplate(c *gin.Context) {
-	channel, ok := resolveAssetsChannel(c)
+	channel, provider, ok := resolveAssetsProvider(c)
 	if !ok {
 		return
 	}
+	if !provider.Capabilities().ExcelTemplate {
+		assetServiceError(c, service.ErrCapabilityUnsupported(provider.Name(), "excel template download"))
+		return
+	}
 
-	resp, aErr := service.StreamAssetsUpstream(c.Request.Context(), channel, service.AssetsUpstreamRequest{
-		Method: http.MethodGet,
-		Path:   "/v1/assets/batch/template",
-	})
+	resp, aErr := provider.ExcelTemplate(c.Request.Context(), channel)
 	if aErr != nil {
 		assetServiceError(c, aErr)
 		return
@@ -544,10 +601,11 @@ func assetBatchTemplate(c *gin.Context) {
 // ============================
 
 func assetGroupCreate(c *gin.Context) {
-	channel, ok := resolveAssetsChannel(c)
+	channel, provider, ok := resolveAssetsProvider(c)
 	if !ok {
 		return
 	}
+	caps := provider.Capabilities()
 
 	var req dto.AssetGroupCreateRequest
 	if err := common.UnmarshalBodyReusable(c, &req); err != nil {
@@ -559,66 +617,95 @@ func assetGroupCreate(c *gin.Context) {
 		assetError(c, http.StatusBadRequest, service.AssetErrInvalidRequest, "name is required")
 		return
 	}
+
+	// region 与 groupType 分属两家上游，按能力集校验，传错的那个直接报明确错误
 	region := strings.ToLower(strings.TrimSpace(req.GetRegion()))
-	if region != "" && region != model.AssetRegionCN && region != model.AssetRegionINTL {
-		assetError(c, http.StatusBadRequest, service.AssetErrInvalidRequest,
-			`region must be "cn" or "intl"`)
+	if caps.Regions {
+		if region != "" && region != model.AssetRegionCN && region != model.AssetRegionINTL {
+			assetError(c, http.StatusBadRequest, service.AssetErrInvalidRequest,
+				`region must be "cn" or "intl"`)
+			return
+		}
+	} else if region != "" {
+		assetError(c, http.StatusBadRequest, service.AssetErrUnsupported,
+			"current upstream provider "+provider.Name()+" has no region concept, please use groupType instead")
 		return
 	}
 
-	rawBody, err := readAssetRequestBody(c)
-	if err != nil {
-		assetError(c, http.StatusBadRequest, service.AssetErrInvalidRequest,
-			"failed to read request body: "+err.Error())
+	groupType := strings.TrimSpace(req.GetGroupType())
+	if len(caps.GroupTypes) > 0 {
+		if groupType != "" && !containsString(caps.GroupTypes, groupType) {
+			assetError(c, http.StatusBadRequest, service.AssetErrInvalidRequest,
+				"groupType must be one of: "+strings.Join(caps.GroupTypes, ", "))
+			return
+		}
+	} else if groupType != "" {
+		assetError(c, http.StatusBadRequest, service.AssetErrUnsupported,
+			"current upstream provider "+provider.Name()+" has no groupType concept")
 		return
 	}
 
-	resp, aErr := service.DoAssetsUpstreamRequest(c.Request.Context(), channel, service.AssetsUpstreamRequest{
-		Method:      http.MethodPost,
-		Path:        "/v1/assets/groups",
-		Body:        rawBody,
-		ContentType: "application/json",
+	fields, aErr := provider.CreateGroup(c.Request.Context(), channel, service.CreateGroupInput{
+		Name:        req.Name,
+		Description: req.GetDescription(),
+		Region:      region,
+		GroupType:   groupType,
 	})
 	if aErr != nil {
 		assetServiceError(c, aErr)
 		return
 	}
-	if !resp.IsSuccess() {
-		assetError(c, resp.StatusCode, service.AssetErrUpstream, service.ExtractUpstreamAssetError(resp.Body))
+	if fields.OfficialId == "" {
+		assetError(c, http.StatusBadGateway, service.AssetErrUpstream,
+			"upstream response has no group id")
 		return
 	}
 
 	userId := c.GetInt("id")
-	var raw map[string]any
-	if err := common.Unmarshal(resp.Body, &raw); err == nil {
-		officialId, _ := raw["officialId"].(string)
-		if officialId != "" {
-			respRegion, _ := raw["region"].(string)
-			if respRegion == "" {
-				respRegion = region
-			}
-			if respRegion == "" {
-				respRegion = model.AssetRegionCN
-			}
-			group := &model.AssetGroup{
-				OfficialId:  officialId,
-				UserId:      userId,
-				ChannelId:   channel.Id,
-				Name:        req.Name,
-				Description: req.GetDescription(),
-				Region:      strings.ToLower(respRegion),
-			}
-			if idVal, ok := raw["id"].(float64); ok {
-				group.UpstreamId = int64(idVal)
-			}
-			if err := group.Insert(); err != nil {
-				logger.LogError(c.Request.Context(),
-					fmt.Sprintf("failed to record asset group for user %d: %s", userId, err.Error()))
-			}
-		}
+	group := &model.AssetGroup{
+		OfficialId:  fields.OfficialId,
+		UserId:      userId,
+		ChannelId:   channel.Id,
+		Provider:    provider.Name(),
+		Name:        fields.Name,
+		Description: fields.Description,
+		Region:      strings.ToLower(fields.Region),
+		GroupType:   fields.GroupType,
+		UpstreamId:  fields.UpstreamId,
+	}
+	if err := group.Insert(); err != nil {
+		logger.LogError(c.Request.Context(),
+			fmt.Sprintf("failed to record asset group for user %d: %s", userId, err.Error()))
 	}
 
-	writeUpstreamJSON(c, resp.StatusCode, resp.Body)
+	c.JSON(http.StatusOK, toAssetGroupItem(group, false))
+}
+
+func containsString(list []string, target string) bool {
+	for _, v := range list {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
+func toAssetGroupItem(g *model.AssetGroup, verbose bool) dto.AssetGroupItemResponse {
+	item := dto.AssetGroupItemResponse{
+		Id:          g.Id,
+		OfficialId:  g.OfficialId,
+		Name:        g.Name,
+		Description: g.Description,
+		Region:      g.Region,
+		GroupType:   g.GroupType,
+		Provider:    g.Provider,
+		Count:       dto.AssetGroupCount{Assets: g.AssetCount},
+		CreatedAt:   g.CreatedAt,
+	}
+	if verbose {
+		item.ChannelId = g.ChannelId
+	}
+	return item
 }
 
 // assetGroupList 本地查询，理由同素材列表：
@@ -635,19 +722,7 @@ func assetGroupList(c *gin.Context) {
 	verbose := assetVerbose(c)
 	items := make([]dto.AssetGroupItemResponse, 0, len(groups))
 	for _, g := range groups {
-		item := dto.AssetGroupItemResponse{
-			Id:          g.Id,
-			OfficialId:  g.OfficialId,
-			Name:        g.Name,
-			Description: g.Description,
-			Region:      g.Region,
-			Count:       dto.AssetGroupCount{Assets: g.AssetCount},
-			CreatedAt:   g.CreatedAt,
-		}
-		if verbose {
-			item.ChannelId = g.ChannelId
-		}
-		items = append(items, item)
+		items = append(items, toAssetGroupItem(g, verbose))
 	}
 	c.JSON(http.StatusOK, items)
 }
@@ -672,31 +747,31 @@ func assetGet(c *gin.Context, officialId string) {
 		return
 	}
 
-	channel, ok := resolveAssetsChannel(c)
+	channel, provider, ok := resolveAssetsProvider(c)
 	if !ok {
 		return
 	}
 
-	resp, aErr := service.DoAssetsUpstreamRequest(c.Request.Context(), channel, service.AssetsUpstreamRequest{
-		Method: http.MethodGet,
-		Path:   "/v1/assets/" + url.PathEscape(officialId),
-	})
+	// 上游已切换时，旧素材在新上游不存在，直接返回本地记录并提示，
+	// 避免把一个必然失败的请求打到上游。
+	if asset.Provider != "" && asset.Provider != provider.Name() {
+		assetError(c, http.StatusConflict, service.AssetErrProviderMismatch,
+			fmt.Sprintf("asset %s was created on provider %q but current provider is %q",
+				officialId, asset.Provider, provider.Name()))
+		return
+	}
+
+	fields, aErr := provider.GetAsset(c.Request.Context(), channel, officialId)
 	if aErr != nil {
 		assetServiceError(c, aErr)
 		return
 	}
-	if !resp.IsSuccess() {
-		assetError(c, resp.StatusCode, service.AssetErrUpstream, service.ExtractUpstreamAssetError(resp.Body))
-		return
-	}
-
-	// 回写本地状态与 Excel 路径下缺失的字段
-	if err := service.ApplyUpstreamAssetResponse(asset, resp.Body); err != nil {
+	if err := service.ApplyUpstreamAssetFields(asset, fields); err != nil {
 		logger.LogError(c.Request.Context(),
 			fmt.Sprintf("failed to sync asset %s: %s", officialId, err.Error()))
 	}
 
-	writeUpstreamJSON(c, resp.StatusCode, resp.Body)
+	c.JSON(http.StatusOK, toAssetItem(asset, assetVerbose(c)))
 }
 
 func assetDelete(c *gin.Context, officialId string) {
@@ -713,33 +788,28 @@ func assetDelete(c *gin.Context, officialId string) {
 		return
 	}
 
-	channel, ok := resolveAssetsChannel(c)
+	channel, provider, ok := resolveAssetsProvider(c)
 	if !ok {
 		return
 	}
 
-	resp, aErr := service.DoAssetsUpstreamRequest(c.Request.Context(), channel, service.AssetsUpstreamRequest{
-		Method: http.MethodDelete,
-		Path:   "/v1/assets/" + url.PathEscape(officialId),
-	})
-	if aErr != nil {
+	// 上游已切换时不去删新上游的同名素材，只清理本地记录
+	if asset.Provider != "" && asset.Provider != provider.Name() {
+		if err := asset.SoftDelete(); err != nil {
+			logger.LogError(c.Request.Context(),
+				fmt.Sprintf("failed to soft delete asset %s: %s", officialId, err.Error()))
+		}
+		c.JSON(http.StatusOK, gin.H{"officialId": officialId, "deleted": true, "upstreamSkipped": true})
+		return
+	}
+
+	if aErr := provider.DeleteAsset(c.Request.Context(), channel, officialId); aErr != nil {
 		assetServiceError(c, aErr)
 		return
 	}
-	// 上游已经不存在时，本地也应清理掉，视为删除成功
-	if !resp.IsSuccess() && resp.StatusCode != http.StatusNotFound {
-		assetError(c, resp.StatusCode, service.AssetErrUpstream, service.ExtractUpstreamAssetError(resp.Body))
-		return
-	}
-
 	if err := asset.SoftDelete(); err != nil {
 		logger.LogError(c.Request.Context(),
 			fmt.Sprintf("failed to soft delete asset %s: %s", officialId, err.Error()))
-	}
-
-	if len(resp.Body) > 0 && resp.IsSuccess() {
-		writeUpstreamJSON(c, resp.StatusCode, resp.Body)
-		return
 	}
 	c.JSON(http.StatusOK, gin.H{"officialId": officialId, "deleted": true})
 }
@@ -748,16 +818,11 @@ func assetDelete(c *gin.Context, officialId string) {
 // 工具函数
 // ============================
 
-// readAssetRequestBody 取原始请求体，用于原样透传到上游。
+// readAssetRequestBody 取原始请求体，用于 multipart 原样透传到上游。
 func readAssetRequestBody(c *gin.Context) ([]byte, error) {
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
 		return nil, err
 	}
 	return storage.Bytes()
-}
-
-// writeUpstreamJSON 原样透传上游 JSON 响应，不做任何字段改写。
-func writeUpstreamJSON(c *gin.Context, statusCode int, body []byte) {
-	c.Data(statusCode, "application/json; charset=utf-8", body)
 }

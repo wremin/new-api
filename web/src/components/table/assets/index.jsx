@@ -29,18 +29,26 @@ import { useAssetsData } from '../../../hooks/assets/useAssetsData';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import { createCardProPagination } from '../../../helpers/utils';
 
-const AssetsPage = () => {
-  const assetsData = useAssetsData();
+const AssetsPage = ({
+  capabilities,
+  capabilitiesLoading = false,
+  onConfigure,
+}) => {
+  const assetsData = useAssetsData(capabilities);
   const isMobile = useIsMobile();
 
   if (assetsData.channelError) {
     return (
       <AssetsChannelEmpty
         channelError={assetsData.channelError}
+        onConfigure={onConfigure}
         t={assetsData.t}
       />
     );
   }
+
+  // 能力未就绪前不展示依赖能力的控件，统一走表格的 loading 态
+  const pageData = { ...assetsData, capabilitiesLoading };
 
   return (
     <>
@@ -52,6 +60,7 @@ const AssetsPage = () => {
         groups={assetsData.groups}
         groupOptions={assetsData.groupOptions}
         groupsLoading={assetsData.groupsLoading}
+        capabilities={assetsData.capabilities}
         copyText={assetsData.copyText}
         handleAssetError={assetsData.handleAssetError}
         t={assetsData.t}
@@ -60,7 +69,7 @@ const AssetsPage = () => {
       <Layout>
         <CardPro
           type='type2'
-          statsArea={<AssetsActions {...assetsData} />}
+          statsArea={<AssetsActions {...pageData} />}
           searchArea={<AssetsFilters {...assetsData} />}
           paginationArea={createCardProPagination({
             currentPage: assetsData.activePage,
@@ -73,7 +82,7 @@ const AssetsPage = () => {
           })}
           t={assetsData.t}
         >
-          <AssetsTable {...assetsData} />
+          <AssetsTable {...pageData} />
         </CardPro>
       </Layout>
     </>

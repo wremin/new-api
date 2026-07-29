@@ -45,8 +45,23 @@ export const ASSET_CHANNEL_ERROR_CODES = [
 
 export const ASSET_RATE_LIMIT_CODE = 'assets_rate_limit_exceeded';
 
-// 单次批量上传的最大条数（与后端保持一致）
+// 单次批量上传的最大条数（上游能力未知时的兜底值）
 export const ASSET_BATCH_MAX = 50;
+
+/**
+ * 上游能力的默认值：按 seegen（功能最全的上游）取值，
+ * 这样在 /v1/assets/capabilities 返回前不会先闪现出「功能被禁用」的界面。
+ */
+export const DEFAULT_ASSET_CAPABILITIES = {
+  provider: '',
+  batchCreate: true,
+  excelTemplate: true,
+  regions: true,
+  groupTypes: [],
+  renameAsset: false,
+  deleteGroup: false,
+  batchMaxItems: ASSET_BATCH_MAX,
+};
 
 const baseConfig = { skipErrorHandler: true };
 
@@ -81,6 +96,40 @@ export function parseAssetError(error) {
  */
 export function isAssetChannelError(parsedError) {
   return ASSET_CHANNEL_ERROR_CODES.includes(parsedError?.code);
+}
+
+/**
+ * 将 /v1/assets/capabilities 的响应归一化，缺失字段回退到 seegen 默认值
+ */
+export function normalizeAssetCapabilities(payload) {
+  const data = payload && typeof payload === 'object' ? payload : {};
+  const groupTypes = Array.isArray(data.groupTypes)
+    ? data.groupTypes.filter((item) => typeof item === 'string' && item)
+    : [];
+  const batchMaxItems = Number(data.batchMaxItems);
+
+  return {
+    provider: typeof data.provider === 'string' ? data.provider : '',
+    // 布尔能力缺省视为支持，避免上游只返回部分字段时误禁用功能
+    batchCreate: data.batchCreate !== false,
+    excelTemplate: data.excelTemplate !== false,
+    regions: data.regions !== false,
+    groupTypes,
+    renameAsset: data.renameAsset === true,
+    deleteGroup: data.deleteGroup === true,
+    batchMaxItems:
+      Number.isFinite(batchMaxItems) && batchMaxItems > 0
+        ? Math.floor(batchMaxItems)
+        : ASSET_BATCH_MAX,
+  };
+}
+
+export async function getAssetCapabilities() {
+  const res = await API.get('/v1/assets/capabilities', {
+    ...baseConfig,
+    disableDuplicate: true,
+  });
+  return normalizeAssetCapabilities(res.data);
 }
 
 export async function fetchAssets(params = {}) {

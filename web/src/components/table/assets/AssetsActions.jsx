@@ -28,6 +28,7 @@ const AssetsActions = ({
   compactMode,
   setCompactMode,
   setShowUploadModal,
+  capabilitiesLoading,
   t,
 }) => {
   return (
@@ -43,6 +44,8 @@ const AssetsActions = ({
           size='small'
           icon={<Upload size={14} />}
           className='w-full md:w-auto'
+          loading={capabilitiesLoading}
+          disabled={capabilitiesLoading}
           onClick={() => setShowUploadModal(true)}
         >
           {t('上传素材')}

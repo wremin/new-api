@@ -198,7 +198,9 @@ const buildModelState = (name, sourceMaps) => {
         : '',
     longContextCachePrice:
       longContextInputPriceNumber !== null && hasValue(longContextCacheRatio)
-        ? formatNumber(longContextInputPriceNumber * Number(longContextCacheRatio))
+        ? formatNumber(
+            longContextInputPriceNumber * Number(longContextCacheRatio),
+          )
         : '',
     longContextCreateCachePrice:
       longContextInputPriceNumber !== null &&
@@ -340,9 +342,7 @@ export const buildSummaryText = (model, t) => {
       model.longContextCachePrice,
       model.longContextCreateCachePrice,
     ].some(hasValue);
-    const longContextLabel = hasLongContext
-      ? `，${t('已配置长文本价格')}`
-      : '';
+    const longContextLabel = hasLongContext ? `，${t('已配置长文本价格')}` : '';
     return `${t('输入')} $${model.inputPrice}${extraLabel}${longContextLabel}`;
   }
 
@@ -507,7 +507,9 @@ const serializeModel = (model, t) => {
 
   // 长文本价格序列化：长文本输入价格为独立基础，不依赖普通输入价格
   if (longContextInputPrice !== null) {
-    result.LongContextModelRatio = toNormalizedNumber(longContextInputPrice / 2);
+    result.LongContextModelRatio = toNormalizedNumber(
+      longContextInputPrice / 2,
+    );
 
     if (longContextCompletionPrice !== null) {
       result.LongContextCompletionRatio = toNormalizedNumber(
@@ -972,7 +974,10 @@ export function useModelPricingEditorState({
     };
   };
 
-  const fillLongContextDerivedPricesFromBase = (model, nextLongContextInputPrice) => {
+  const fillLongContextDerivedPricesFromBase = (
+    model,
+    nextLongContextInputPrice,
+  ) => {
     const baseNumber = toNumberOrNull(nextLongContextInputPrice);
     if (baseNumber === null) {
       return model;
@@ -984,21 +989,21 @@ export function useModelPricingEditorState({
         !hasValue(model.longContextCompletionPrice) &&
         hasValue(model.rawRatios.longContextCompletionRatio)
           ? formatNumber(
-              baseNumber *
-                Number(model.rawRatios.longContextCompletionRatio),
+              baseNumber * Number(model.rawRatios.longContextCompletionRatio),
             )
           : model.longContextCompletionPrice,
       longContextCachePrice:
         !hasValue(model.longContextCachePrice) &&
         hasValue(model.rawRatios.longContextCacheRatio)
-          ? formatNumber(baseNumber * Number(model.rawRatios.longContextCacheRatio))
+          ? formatNumber(
+              baseNumber * Number(model.rawRatios.longContextCacheRatio),
+            )
           : model.longContextCachePrice,
       longContextCreateCachePrice:
         !hasValue(model.longContextCreateCachePrice) &&
         hasValue(model.rawRatios.longContextCreateCacheRatio)
           ? formatNumber(
-              baseNumber *
-                Number(model.rawRatios.longContextCreateCacheRatio),
+              baseNumber * Number(model.rawRatios.longContextCreateCacheRatio),
             )
           : model.longContextCreateCachePrice,
     };
@@ -1107,7 +1112,8 @@ export function useModelPricingEditorState({
           longContextInputPrice: selectedModel.longContextInputPrice,
           longContextCompletionPrice: selectedModel.longContextCompletionPrice,
           longContextCachePrice: selectedModel.longContextCachePrice,
-          longContextCreateCachePrice: selectedModel.longContextCreateCachePrice,
+          longContextCreateCachePrice:
+            selectedModel.longContextCreateCachePrice,
         };
 
         return nextModel;

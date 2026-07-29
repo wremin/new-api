@@ -377,7 +377,11 @@ const UploadAssetsModal = ({
                   >
                     {renderResultLabel(item)}
                   </Text>
-                  <Text type='tertiary' size='small' ellipsis={{ showTooltip: true }}>
+                  <Text
+                    type='tertiary'
+                    size='small'
+                    ellipsis={{ showTooltip: true }}
+                  >
                     {item.status === 'ok' ? item.officialId : item.error}
                   </Text>
                 </div>

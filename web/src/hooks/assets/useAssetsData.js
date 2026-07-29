@@ -110,7 +110,11 @@ export const useAssetsData = (capabilities = DEFAULT_ASSET_CAPABILITIES) => {
       key: `${item.officialId || item.id || index}`,
     }));
 
-  const loadAssets = async (page = activePage, size = pageSize, options = {}) => {
+  const loadAssets = async (
+    page = activePage,
+    size = pageSize,
+    options = {},
+  ) => {
     const { refresh = false, silent = false } = options;
     if (!silent) setLoading(true);
     try {
@@ -227,7 +231,8 @@ export const useAssetsData = (capabilities = DEFAULT_ASSET_CAPABILITIES) => {
     const map = {};
     groups.forEach((group) => {
       if (group.officialId) map[group.officialId] = group;
-      if (group.id !== undefined && group.id !== null) map[`${group.id}`] = group;
+      if (group.id !== undefined && group.id !== null)
+        map[`${group.id}`] = group;
     });
     return map;
   }, [groups]);

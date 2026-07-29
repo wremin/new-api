@@ -42,9 +42,12 @@ const UsersActions = ({
       {hasSelection && (
         <Popconfirm
           title={t('确认批量删除')}
-          content={t('确定要删除选中的 {{count}} 个用户吗？此操作为软删除（禁用），可在之后恢复。', {
-            count: selectedRowKeys.length,
-          })}
+          content={t(
+            '确定要删除选中的 {{count}} 个用户吗？此操作为软删除（禁用），可在之后恢复。',
+            {
+              count: selectedRowKeys.length,
+            },
+          )}
           onConfirm={onBatchDelete}
           position='bottom'
         >

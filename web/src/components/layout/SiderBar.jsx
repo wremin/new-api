@@ -512,7 +512,10 @@ const SiderBar = ({ onNavigate = () => {} }) => {
                   }
                   icon={
                     <div className='sidebar-icon-container flex-shrink-0'>
-                      {getLucideIcon('enterprise', selectedKeys.includes('enterprise'))}
+                      {getLucideIcon(
+                        'enterprise',
+                        selectedKeys.includes('enterprise'),
+                      )}
                     </div>
                   }
                 />

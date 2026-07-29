@@ -18,7 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Input, Radio, RadioGroup, Space } from '@douyinfe/semi-ui';
+import {
+  Button,
+  Card,
+  Input,
+  Radio,
+  RadioGroup,
+  Space,
+} from '@douyinfe/semi-ui';
 import { IconSave } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import ModelPricingEditor from './components/ModelPricingEditor';
@@ -32,13 +39,17 @@ function parseThreshold(value) {
     return DEFAULT_LONG_CONTEXT_THRESHOLD;
   }
   const num = Number(String(value).trim());
-  return Number.isFinite(num) && num >= 0 ? Math.floor(num) : DEFAULT_LONG_CONTEXT_THRESHOLD;
+  return Number.isFinite(num) && num >= 0
+    ? Math.floor(num)
+    : DEFAULT_LONG_CONTEXT_THRESHOLD;
 }
 
 export default function ModelPricingCombined({ options, refresh }) {
   const { t } = useTranslation();
   const [editMode, setEditMode] = useState('visual');
-  const [threshold, setThreshold] = useState(String(DEFAULT_LONG_CONTEXT_THRESHOLD));
+  const [threshold, setThreshold] = useState(
+    String(DEFAULT_LONG_CONTEXT_THRESHOLD),
+  );
   const [savingThreshold, setSavingThreshold] = useState(false);
 
   useEffect(() => {

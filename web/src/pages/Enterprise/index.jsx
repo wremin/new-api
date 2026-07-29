@@ -210,10 +210,7 @@ const SubAccountsTable = () => {
             {t('搜索')}
           </Button>
         </Space>
-        <Button
-          type='primary'
-          onClick={() => setCreateModalVisible(true)}
-        >
+        <Button type='primary' onClick={() => setCreateModalVisible(true)}>
           {t('创建子账号')}
         </Button>
       </div>
@@ -457,9 +454,7 @@ const AllocateQuotaModal = ({ visible, account, onCancel, onSuccess }) => {
         { quota: amount },
       );
       if (res.data.success) {
-        showSuccess(
-          action === 'allocate' ? t('分配成功') : t('回收成功'),
-        );
+        showSuccess(action === 'allocate' ? t('分配成功') : t('回收成功'));
         onSuccess();
       } else {
         showError(res.data.message);

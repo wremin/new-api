@@ -101,7 +101,10 @@ export default function SettingsPaymentGatewayAlipay(props) {
         options.push({ key: 'AlipayAppID', value: inputs.AlipayAppID });
       }
       if (inputs.AlipayPrivateKey !== '') {
-        options.push({ key: 'AlipayPrivateKey', value: inputs.AlipayPrivateKey });
+        options.push({
+          key: 'AlipayPrivateKey',
+          value: inputs.AlipayPrivateKey,
+        });
       }
       if (inputs.AlipayPublicKey !== '') {
         options.push({ key: 'AlipayPublicKey', value: inputs.AlipayPublicKey });
@@ -160,11 +163,7 @@ export default function SettingsPaymentGatewayAlipay(props) {
         <Form.Section text={t('支付宝设置')}>
           <Text>
             {t('支付宝开放平台配置，请前往')}
-            <a
-              href='https://open.alipay.com/'
-              target='_blank'
-              rel='noreferrer'
-            >
+            <a href='https://open.alipay.com/' target='_blank' rel='noreferrer'>
               {t('支付宝开放平台')}
             </a>
             {t('获取应用 APPID、应用私钥和支付宝公钥。')}

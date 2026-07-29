@@ -107,10 +107,16 @@ export default function SettingsPaymentGatewayWechatPay(props) {
         options.push({ key: 'WechatPayKey', value: inputs.WechatPayKey });
       }
       if (inputs.WechatPayNotifyURL !== '') {
-        options.push({ key: 'WechatPayNotifyURL', value: inputs.WechatPayNotifyURL });
+        options.push({
+          key: 'WechatPayNotifyURL',
+          value: inputs.WechatPayNotifyURL,
+        });
       }
       if (inputs.WechatPayReturnURL !== '') {
-        options.push({ key: 'WechatPayReturnURL', value: inputs.WechatPayReturnURL });
+        options.push({
+          key: 'WechatPayReturnURL',
+          value: inputs.WechatPayReturnURL,
+        });
       }
       if (
         inputs.WechatPayMinTopUp !== undefined &&

@@ -169,7 +169,10 @@ const PaymentSetting = () => {
           <SettingsPaymentGatewayAlipay options={inputs} refresh={onRefresh} />
         </Card>
         <Card style={{ marginTop: '10px' }}>
-          <SettingsPaymentGatewayWechatPay options={inputs} refresh={onRefresh} />
+          <SettingsPaymentGatewayWechatPay
+            options={inputs}
+            refresh={onRefresh}
+          />
         </Card>
       </Spin>
     </>

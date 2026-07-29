@@ -254,7 +254,9 @@ export default function ModelPricingEditor({
             style={isMobile ? { width: '100%' } : undefined}
           >
             {t('批量应用当前模型价格')}
-            {selectedModelNames.length > 0 ? ` (${selectedModelNames.length})` : ''}
+            {selectedModelNames.length > 0
+              ? ` (${selectedModelNames.length})`
+              : ''}
           </Button>
           <Input
             prefix={<IconSearch />}
@@ -376,7 +378,9 @@ export default function ModelPricingEditor({
                   <RadioGroup
                     type='button'
                     value={selectedModel.billingMode}
-                    onChange={(event) => handleBillingModeChange(event.target.value)}
+                    onChange={(event) =>
+                      handleBillingModeChange(event.target.value)
+                    }
                   >
                     <Radio value='per-token'>{t('按量计费')}</Radio>
                     <Radio value='per-request'>{t('按次计费')}</Radio>
@@ -411,7 +415,9 @@ export default function ModelPricingEditor({
                     value={selectedModel.fixedPrice}
                     placeholder={t('输入每次调用价格')}
                     suffix={t('$/次')}
-                    onChange={(value) => handleNumericFieldChange('fixedPrice', value)}
+                    onChange={(value) =>
+                      handleNumericFieldChange('fixedPrice', value)
+                    }
                     extraText={t('适合 MJ / 任务类等按次收费模型。')}
                   />
                 ) : (
@@ -428,7 +434,9 @@ export default function ModelPricingEditor({
                         label={t('输入价格')}
                         value={selectedModel.inputPrice}
                         placeholder={t('输入 $/1M tokens')}
-                        onChange={(value) => handleNumericFieldChange('inputPrice', value)}
+                        onChange={(value) =>
+                          handleNumericFieldChange('inputPrice', value)
+                        }
                       />
                       <PriceInput
                         label={t('补全价格')}
@@ -445,12 +453,18 @@ export default function ModelPricingEditor({
                               'completionPrice',
                             )}
                             onChange={(checked) =>
-                              handleOptionalFieldToggle('completionPrice', checked)
+                              handleOptionalFieldToggle(
+                                'completionPrice',
+                                checked,
+                              )
                             }
                           />
                         }
                         hidden={
-                          !isOptionalFieldEnabled(selectedModel, 'completionPrice')
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'completionPrice',
+                          )
                         }
                         disabled={!hasValue(selectedModel.inputPrice)}
                         extraText={
@@ -466,17 +480,24 @@ export default function ModelPricingEditor({
                         label={t('缓存读取价格')}
                         value={selectedModel.cachePrice}
                         placeholder={t('输入 $/1M tokens')}
-                        onChange={(value) => handleNumericFieldChange('cachePrice', value)}
+                        onChange={(value) =>
+                          handleNumericFieldChange('cachePrice', value)
+                        }
                         headerAction={
                           <Switch
                             size='small'
-                            checked={isOptionalFieldEnabled(selectedModel, 'cachePrice')}
+                            checked={isOptionalFieldEnabled(
+                              selectedModel,
+                              'cachePrice',
+                            )}
                             onChange={(checked) =>
                               handleOptionalFieldToggle('cachePrice', checked)
                             }
                           />
                         }
-                        hidden={!isOptionalFieldEnabled(selectedModel, 'cachePrice')}
+                        hidden={
+                          !isOptionalFieldEnabled(selectedModel, 'cachePrice')
+                        }
                         disabled={!hasValue(selectedModel.inputPrice)}
                         extraText={
                           !isOptionalFieldEnabled(selectedModel, 'cachePrice')
@@ -499,12 +520,18 @@ export default function ModelPricingEditor({
                               'createCachePrice',
                             )}
                             onChange={(checked) =>
-                              handleOptionalFieldToggle('createCachePrice', checked)
+                              handleOptionalFieldToggle(
+                                'createCachePrice',
+                                checked,
+                              )
                             }
                           />
                         }
                         hidden={
-                          !isOptionalFieldEnabled(selectedModel, 'createCachePrice')
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'createCachePrice',
+                          )
                         }
                         disabled={!hasValue(selectedModel.inputPrice)}
                         extraText={
@@ -535,17 +562,24 @@ export default function ModelPricingEditor({
                         label={t('图片输入价格')}
                         value={selectedModel.imagePrice}
                         placeholder={t('输入 $/1M tokens')}
-                        onChange={(value) => handleNumericFieldChange('imagePrice', value)}
+                        onChange={(value) =>
+                          handleNumericFieldChange('imagePrice', value)
+                        }
                         headerAction={
                           <Switch
                             size='small'
-                            checked={isOptionalFieldEnabled(selectedModel, 'imagePrice')}
+                            checked={isOptionalFieldEnabled(
+                              selectedModel,
+                              'imagePrice',
+                            )}
                             onChange={(checked) =>
                               handleOptionalFieldToggle('imagePrice', checked)
                             }
                           />
                         }
-                        hidden={!isOptionalFieldEnabled(selectedModel, 'imagePrice')}
+                        hidden={
+                          !isOptionalFieldEnabled(selectedModel, 'imagePrice')
+                        }
                         disabled={!hasValue(selectedModel.inputPrice)}
                         extraText={
                           !isOptionalFieldEnabled(selectedModel, 'imagePrice')
@@ -568,11 +602,19 @@ export default function ModelPricingEditor({
                               'audioInputPrice',
                             )}
                             onChange={(checked) =>
-                              handleOptionalFieldToggle('audioInputPrice', checked)
+                              handleOptionalFieldToggle(
+                                'audioInputPrice',
+                                checked,
+                              )
                             }
                           />
                         }
-                        hidden={!isOptionalFieldEnabled(selectedModel, 'audioInputPrice')}
+                        hidden={
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'audioInputPrice',
+                          )
+                        }
                         disabled={!hasValue(selectedModel.inputPrice)}
                         extraText={
                           !isOptionalFieldEnabled(
@@ -597,17 +639,25 @@ export default function ModelPricingEditor({
                               selectedModel,
                               'audioOutputPrice',
                             )}
-                            disabled={!isOptionalFieldEnabled(
-                              selectedModel,
-                              'audioInputPrice',
-                            )}
+                            disabled={
+                              !isOptionalFieldEnabled(
+                                selectedModel,
+                                'audioInputPrice',
+                              )
+                            }
                             onChange={(checked) =>
-                              handleOptionalFieldToggle('audioOutputPrice', checked)
+                              handleOptionalFieldToggle(
+                                'audioOutputPrice',
+                                checked,
+                              )
                             }
                           />
                         }
                         hidden={
-                          !isOptionalFieldEnabled(selectedModel, 'audioOutputPrice')
+                          !isOptionalFieldEnabled(
+                            selectedModel,
+                            'audioOutputPrice',
+                          )
                         }
                         disabled={!hasValue(selectedModel.audioInputPrice)}
                         extraText={
@@ -636,7 +686,9 @@ export default function ModelPricingEditor({
                       <div className='mb-3'>
                         <div className='font-medium'>{t('长文本价格')}</div>
                         <div className='text-xs text-gray-500 mt-1'>
-                          {t('当总 tokens 超过上方阈值时生效，不填则按普通价格计费。')}
+                          {t(
+                            '当总 tokens 超过上方阈值时生效，不填则按普通价格计费。',
+                          )}
                         </div>
                       </div>
                       <PriceInput
@@ -644,7 +696,10 @@ export default function ModelPricingEditor({
                         value={selectedModel.longContextInputPrice}
                         placeholder={t('输入 $/1M tokens')}
                         onChange={(value) =>
-                          handleNumericFieldChange('longContextInputPrice', value)
+                          handleNumericFieldChange(
+                            'longContextInputPrice',
+                            value,
+                          )
                         }
                         headerAction={
                           <Switch
@@ -724,7 +779,10 @@ export default function ModelPricingEditor({
                         value={selectedModel.longContextCachePrice}
                         placeholder={t('输入 $/1M tokens')}
                         onChange={(value) =>
-                          handleNumericFieldChange('longContextCachePrice', value)
+                          handleNumericFieldChange(
+                            'longContextCachePrice',
+                            value,
+                          )
                         }
                         headerAction={
                           <Switch
@@ -747,7 +805,9 @@ export default function ModelPricingEditor({
                             'longContextCachePrice',
                           )
                         }
-                        disabled={!hasValue(selectedModel.longContextInputPrice)}
+                        disabled={
+                          !hasValue(selectedModel.longContextInputPrice)
+                        }
                         extraText={
                           !isOptionalFieldEnabled(
                             selectedModel,
@@ -788,7 +848,9 @@ export default function ModelPricingEditor({
                             'longContextCreateCachePrice',
                           )
                         }
-                        disabled={!hasValue(selectedModel.longContextInputPrice)}
+                        disabled={
+                          !hasValue(selectedModel.longContextInputPrice)
+                        }
                         extraText={
                           !isOptionalFieldEnabled(
                             selectedModel,

@@ -294,8 +294,13 @@ const TopUp = () => {
 
               const checkPaymentStatus = async () => {
                 try {
-                  const statusRes = await API.get(`/api/user/topup/status/${tradeNo}`);
-                  if (statusRes.data?.success && statusRes.data.data?.status === 'success') {
+                  const statusRes = await API.get(
+                    `/api/user/topup/status/${tradeNo}`,
+                  );
+                  if (
+                    statusRes.data?.success &&
+                    statusRes.data.data?.status === 'success'
+                  ) {
                     paid = true;
                     if (pollTimer) clearInterval(pollTimer);
                     if (pollTimeout) clearTimeout(pollTimeout);
@@ -310,9 +315,12 @@ const TopUp = () => {
 
               pollTimer = setInterval(checkPaymentStatus, 3000);
               // 安全上限：10 分钟后自动停止轮询，避免长期占用资源
-              pollTimeout = setTimeout(() => {
-                if (pollTimer) clearInterval(pollTimer);
-              }, 10 * 60 * 1000);
+              pollTimeout = setTimeout(
+                () => {
+                  if (pollTimer) clearInterval(pollTimer);
+                },
+                10 * 60 * 1000,
+              );
             } else {
               // H5支付：直接跳转
               window.open(data.pay_url, '_blank');
@@ -404,32 +412,32 @@ const TopUp = () => {
 
   const waffoTopUp = async (payMethodIndex) => {
     try {
-        if (topUpCount < waffoMinTopUp) {
-            showError(t('充值数量不能小于') + waffoMinTopUp);
-            return;
-        }
-        setPaymentLoading(true);
-        const requestBody = {
-            amount: parseInt(topUpCount),
-        };
-        if (payMethodIndex != null) {
-            requestBody.pay_method_index = payMethodIndex;
-        }
-        const res = await API.post('/api/user/waffo/pay', requestBody);
-        if (res !== undefined) {
-            const { message, data } = res.data;
-            if (message === 'success' && data?.payment_url) {
-                window.open(data.payment_url, '_blank');
-            } else {
-                showError(data || t('支付请求失败'));
-            }
+      if (topUpCount < waffoMinTopUp) {
+        showError(t('充值数量不能小于') + waffoMinTopUp);
+        return;
+      }
+      setPaymentLoading(true);
+      const requestBody = {
+        amount: parseInt(topUpCount),
+      };
+      if (payMethodIndex != null) {
+        requestBody.pay_method_index = payMethodIndex;
+      }
+      const res = await API.post('/api/user/waffo/pay', requestBody);
+      if (res !== undefined) {
+        const { message, data } = res.data;
+        if (message === 'success' && data?.payment_url) {
+          window.open(data.payment_url, '_blank');
         } else {
-            showError(res);
+          showError(data || t('支付请求失败'));
         }
+      } else {
+        showError(res);
+      }
     } catch (e) {
-        showError(t('支付请求失败'));
+      showError(t('支付请求失败'));
     } finally {
-        setPaymentLoading(false);
+      setPaymentLoading(false);
     }
   };
 

@@ -55,7 +55,12 @@ const renderPreview = (record, t) => {
   if (record.assetType === 'Image' && record.url) {
     return (
       <div className='w-10 h-10 rounded-md overflow-hidden flex items-center justify-center bg-semi-color-fill-0'>
-        <Image src={record.url} width={40} height={40} alt={record.name || ''} />
+        <Image
+          src={record.url}
+          width={40}
+          height={40}
+          alt={record.name || ''}
+        />
       </div>
     );
   }

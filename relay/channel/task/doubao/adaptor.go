@@ -89,6 +89,25 @@ type stelloriaRequestPayload struct {
 	Seed        *dto.IntValue `json:"seed,omitempty"`
 }
 
+// stelloriaNativePayload 是 Stelloria 原生协议透传请求体。
+//
+// 与扁平模式的区别：
+//   - content 数组原样透传（支持 first_frame / last_frame / reference_image / reference_video / reference_audio）
+//   - duration 是整数秒（5 / 10），不是字符串 "5s"
+//   - 宽高比字段叫 ratio，不是 aspect_ratio
+//   - 没有独立的 prompt 字段（文本在 content[].text 里）
+//   - 支持 generate_audio / watermark 布尔参数
+type stelloriaNativePayload struct {
+	Model         string          `json:"model"`
+	Content       json.RawMessage `json:"content"`
+	Resolution    string          `json:"resolution,omitempty"`
+	Duration      int             `json:"duration,omitempty"`
+	Ratio         string          `json:"ratio,omitempty"`
+	GenerateAudio *bool           `json:"generate_audio,omitempty"`
+	Watermark     *bool           `json:"watermark,omitempty"`
+	Seed          *dto.IntValue   `json:"seed,omitempty"`
+}
+
 // stelloriaTaskResponse 是 Stelloria 的提交与查询响应。
 //
 // 实测的查询响应与官方文档不一致，以实测为准：
@@ -415,6 +434,22 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 
 	// Stelloria 的请求体是完全不同的扁平结构，单独构造
 	if isStelloriaBaseURL(a.baseURL) {
+		// 检测是否原生协议：客户端带了 content 数组
+		if content, hasContent := req.Metadata["content"]; hasContent && content != nil {
+			body := a.convertToStelloriaNativePayload(&req)
+			if info.IsModelMapped {
+				body.Model = info.UpstreamModelName
+			} else {
+				info.UpstreamModelName = body.Model
+			}
+			data, err := common.Marshal(body)
+			if err != nil {
+				return nil, err
+			}
+			logger.LogInfo(c.Request.Context(), fmt.Sprintf("stelloria native upstream request: %s", string(data)))
+			return bytes.NewReader(data), nil
+		}
+
 		body := a.convertToStelloriaPayload(&req)
 		if info.IsModelMapped {
 			body.Model = info.UpstreamModelName
@@ -732,12 +767,52 @@ func (a *TaskAdaptor) convertToStelloriaPayload(req *relaycommon.TaskSubmitReq) 
 		r.ImageURL = metadataString(meta, "image_url")
 	}
 
-	// 刻意不透传下游的 content 数组。
-	//
-	// 很多客户端（包括按 seedance 原生格式写的脚本）会同时带 prompt 和 content，
-	// 但 Stelloria 收到 content 后会回 502 "upstream returned empty task id"，
-	// 去掉即成功——它显然把整个 body 转给自己的上游，多出来的字段会让那边失效。
-	// 这里直接丢弃，客户端不用改代码也能跑通。
+	// 无 content 时走扁平模式（仅 image_url 单图参考）。
+	return r
+}
+
+// convertToStelloriaNativePayload 把统一的任务请求转换成 Stelloria 原生协议请求体。
+//
+// 原生协议透传 content 数组，支持首帧/尾帧/多参考图/参考视频/参考音频。
+// duration 是整数秒（不是字符串），宽高比字段叫 ratio（不是 aspect_ratio）。
+func (a *TaskAdaptor) convertToStelloriaNativePayload(req *relaycommon.TaskSubmitReq) *stelloriaNativePayload {
+	meta := req.Metadata
+
+	// content 原样透传
+	contentRaw, _ := common.Marshal(meta["content"])
+
+	r := &stelloriaNativePayload{
+		Model:   req.Model,
+		Content: contentRaw,
+	}
+
+	r.Resolution = metadataString(meta, "resolution")
+
+	// 宽高比：原生协议用 ratio
+	r.Ratio = metadataString(meta, "ratio")
+	if r.Ratio == "" {
+		r.Ratio = metadataString(meta, "aspect_ratio")
+	}
+
+	// duration：原生协议用整数秒
+	if v, ok := metadataInt(meta, "duration"); ok {
+		r.Duration = v
+	} else if req.Duration > 0 {
+		r.Duration = req.Duration
+	} else if s, _ := strconv.Atoi(req.Seconds); s > 0 {
+		r.Duration = s
+	}
+
+	// 布尔参数透传
+	if v, ok := metadataBool(meta, "generate_audio"); ok {
+		r.GenerateAudio = lo.ToPtr(v)
+	}
+	if v, ok := metadataBool(meta, "watermark"); ok {
+		r.Watermark = lo.ToPtr(v)
+	}
+	if v, ok := metadataInt(meta, "seed"); ok {
+		r.Seed = lo.ToPtr(dto.IntValue(v))
+	}
 
 	return r
 }
@@ -767,6 +842,21 @@ func metadataInt(meta map[string]interface{}, key string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func metadataBool(meta map[string]interface{}, key string) (bool, bool) {
+	if meta == nil {
+		return false, false
+	}
+	switch v := meta[key].(type) {
+	case bool:
+		return v, true
+	case string:
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b, true
+		}
+	}
+	return false, false
 }
 
 // parseStelloriaTaskResult 解析 Stelloria 的查询响应。

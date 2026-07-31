@@ -280,11 +280,6 @@ func TestStelloriaPayloadShape(t *testing.T) {
 			"duration":   float64(10),
 			"ratio":      "16:9",
 			"resolution": "1080p",
-			// 客户端常按 seedance 原生格式同时带 prompt 和 content，
-			// 但 Stelloria 收到 content 会回 502，必须丢弃
-			"content": []interface{}{
-				map[string]interface{}{"type": "text", "text": "一只金毛犬在海边奔跑"},
-			},
 		},
 	}
 
@@ -304,13 +299,92 @@ func TestStelloriaPayloadShape(t *testing.T) {
 	if p.Prompt != "一只金毛犬在海边奔跑" {
 		t.Errorf("prompt = %q", p.Prompt)
 	}
-	// 实测：带上 content 时 Stelloria 会回 502 "upstream returned empty task id"，
-	// 所以即便下游传了也必须丢弃。这里用序列化结果断言，防止字段被重新加回来。
+	// 扁平模式不应包含 content 字段
 	encoded, err := json.Marshal(p)
 	if err != nil {
 		t.Fatalf("marshal payload error: %v", err)
 	}
 	if bytes.Contains(encoded, []byte(`"content"`)) {
-		t.Errorf("请求体不能包含 content 字段，实际: %s", encoded)
+		t.Errorf("扁平模式请求体不能包含 content 字段，实际: %s", encoded)
+	}
+}
+
+// TestStelloriaNativePayloadShape 验证原生协议透传模式：
+// content 数组原样透传，duration 用整数，ratio 不改名，布尔参数透传。
+func TestStelloriaNativePayloadShape(t *testing.T) {
+	a := &TaskAdaptor{baseURL: "https://stelloria.link"}
+	req := relaycommon.TaskSubmitReq{
+		Model:  "seedance-2.0",
+		Prompt: "一只金毛犬在海边奔跑",
+		Metadata: map[string]interface{}{
+			"content": []interface{}{
+				map[string]interface{}{"type": "text", "text": "一只金毛犬在海边奔跑"},
+				map[string]interface{}{
+					"type":      "image_url",
+					"image_url": map[string]interface{}{"url": "https://example.com/photo.jpg"},
+					"role":      "first_frame",
+				},
+			},
+			"duration":       float64(10),
+			"ratio":          "9:16",
+			"resolution":     "1080p",
+			"generate_audio": true,
+			"watermark":      false,
+			"seed":           float64(42),
+		},
+	}
+
+	p := a.convertToStelloriaNativePayload(&req)
+
+	if p.Model != "seedance-2.0" {
+		t.Errorf("model = %q", p.Model)
+	}
+	if p.Duration != 10 {
+		t.Errorf("duration = %d, want 10（原生协议用整数不是字符串）", p.Duration)
+	}
+	if p.Ratio != "9:16" {
+		t.Errorf("ratio = %q, want 9:16", p.Ratio)
+	}
+	if p.Resolution != "1080p" {
+		t.Errorf("resolution = %q", p.Resolution)
+	}
+	if p.GenerateAudio == nil || *p.GenerateAudio != true {
+		t.Errorf("generate_audio 应透传 true")
+	}
+	if p.Watermark == nil || *p.Watermark != false {
+		t.Errorf("watermark 应透传 false")
+	}
+	if p.Seed == nil || int(*p.Seed) != 42 {
+		t.Errorf("seed 应透传 42")
+	}
+
+	// content 应该原样透传
+	var content []map[string]interface{}
+	if err := json.Unmarshal(p.Content, &content); err != nil {
+		t.Fatalf("content unmarshal error: %v", err)
+	}
+	if len(content) != 2 {
+		t.Fatalf("content 应有 2 个元素，实际 %d", len(content))
+	}
+	if content[0]["type"] != "text" {
+		t.Errorf("content[0].type = %v", content[0]["type"])
+	}
+	if content[1]["role"] != "first_frame" {
+		t.Errorf("content[1].role = %v", content[1]["role"])
+	}
+
+	// 序列化结果应包含 content 和 ratio，不包含 prompt 和 aspect_ratio
+	encoded, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal native payload error: %v", err)
+	}
+	if !bytes.Contains(encoded, []byte(`"content"`)) {
+		t.Errorf("原生模式请求体应包含 content 字段")
+	}
+	if bytes.Contains(encoded, []byte(`"prompt"`)) {
+		t.Errorf("原生模式请求体不应包含 prompt 字段，实际: %s", encoded)
+	}
+	if bytes.Contains(encoded, []byte(`"aspect_ratio"`)) {
+		t.Errorf("原生模式应用 ratio 而不是 aspect_ratio，实际: %s", encoded)
 	}
 }

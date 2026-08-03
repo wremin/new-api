@@ -121,14 +121,24 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 	}
 	channel := Channel{}
 	if len(abilities) > 0 {
+		// 排除冷却中（近期返回 429）的渠道；若全部在冷却，则回退为不过滤
+		candidates := make([]Ability, 0, len(abilities))
+		for _, ability_ := range abilities {
+			if !common.IsChannelCooling(ability_.ChannelId) {
+				candidates = append(candidates, ability_)
+			}
+		}
+		if len(candidates) == 0 {
+			candidates = abilities
+		}
 		// Randomly choose one
 		weightSum := uint(0)
-		for _, ability_ := range abilities {
+		for _, ability_ := range candidates {
 			weightSum += ability_.Weight + 10
 		}
 		// Randomly choose one
 		weight := common.GetRandomInt(int(weightSum))
-		for _, ability_ := range abilities {
+		for _, ability_ := range candidates {
 			weight -= int(ability_.Weight) + 10
 			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
 			if weight <= 0 {

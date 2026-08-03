@@ -124,6 +124,10 @@ func InitEnv() {
 	SearchRateLimitEnable = GetEnvOrDefaultBool("SEARCH_RATE_LIMIT_ENABLE", true)
 	SearchRateLimitNum = GetEnvOrDefault("SEARCH_RATE_LIMIT", 10)
 	SearchRateLimitDuration = int64(GetEnvOrDefault("SEARCH_RATE_LIMIT_DURATION", 60))
+
+	// 渠道 429 冷却避让：渠道返回 429 后按 Retry-After（或默认时长）临时移出调度池
+	ChannelCooldownEnabled = GetEnvOrDefaultBool("CHANNEL_COOLDOWN_ENABLED", true)
+	ChannelCooldownSeconds = GetEnvOrDefault("CHANNEL_COOLDOWN_SECONDS", 60)
 	initConstantEnv()
 }
 

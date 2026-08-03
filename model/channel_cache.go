@@ -144,15 +144,27 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	// get the priority for the given retry number
 	var sumWeight = 0
 	var targetChannels []*Channel
+	// 排除冷却中（近期返回 429）的渠道；若该优先级下全部渠道都在冷却，则回退为不过滤
+	var availableWeight = 0
+	var availableChannels []*Channel
 	for _, channelId := range channels {
 		if channel, ok := channelsIDM[channelId]; ok {
 			if channel.GetPriority() == targetPriority {
 				sumWeight += channel.GetWeight()
 				targetChannels = append(targetChannels, channel)
+				if !common.IsChannelCooling(channel.Id) {
+					availableWeight += channel.GetWeight()
+					availableChannels = append(availableChannels, channel)
+				}
 			}
 		} else {
 			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
 		}
+	}
+
+	if len(availableChannels) > 0 {
+		targetChannels = availableChannels
+		sumWeight = availableWeight
 	}
 
 	if len(targetChannels) == 0 {

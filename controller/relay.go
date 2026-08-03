@@ -349,6 +349,15 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
+
+	// 429：将该渠道标记为冷却，后续选择（含重试与新请求）会暂时避开它。
+	// 冷却时长优先取上游报错中的 "retry after N seconds"，否则用 CHANNEL_COOLDOWN_SECONDS（默认 60s）
+	if common.ChannelCooldownEnabled && err.StatusCode == http.StatusTooManyRequests && channelError.ChannelId > 0 {
+		cooldownSeconds := common.ParseRetryAfterSeconds(err.Error())
+		common.MarkChannelCooldown(channelError.ChannelId, cooldownSeconds)
+		logger.LogInfo(c, fmt.Sprintf("渠道 #%d 触发 429，进入冷却 %d 秒", channelError.ChannelId, common.ChannelCooldownRemaining(channelError.ChannelId)))
+	}
+
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	if service.ShouldDisableChannel(err) && channelError.AutoBan {

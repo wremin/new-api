@@ -388,3 +388,78 @@ func TestStelloriaNativePayloadShape(t *testing.T) {
 		t.Errorf("原生模式应用 ratio 而不是 aspect_ratio，实际: %s", encoded)
 	}
 }
+
+// TestRunyuanUpstreamPath 锁定润元（runy.yitd.cn）的路径。
+//
+// 润元只在路径上与火山原生 Ark 不同：提交 /v1/video/tasks、查询 /v1/video/tasks/{id}。
+// 请求体、提交响应（task_id）、查询响应（Ark 原生形态）全部复用既有分支，
+// 因此一旦这里掉进 default，就会打到 /api/v3/... 拿 404。
+func TestRunyuanUpstreamPath(t *testing.T) {
+	a := &TaskAdaptor{baseURL: "https://runy.yitd.cn"}
+	got, err := a.BuildRequestURL(nil)
+	if err != nil {
+		t.Fatalf("BuildRequestURL error: %v", err)
+	}
+	want := "https://runy.yitd.cn/v1/video/tasks"
+	if got != want {
+		t.Errorf("BuildRequestURL = %q, want %q", got, want)
+	}
+	if got == "https://runy.yitd.cn/api/v3/contents/generations/tasks" {
+		t.Error("润元掉进了火山原生分支，会 404")
+	}
+}
+
+// TestParseRunyuanTaskResult 用文档给出的润元查询响应验证解析。
+// 形态与火山 Ark 完全一致（顶层 id + content.video_url），应命中 Ark 分支。
+func TestParseRunyuanTaskResult(t *testing.T) {
+	const videoURL = "https://example.com/video.mp4"
+	body := []byte(`{
+  "id": "cgt-2026xxxxxx",
+  "model": "doubao-seedance-2.0",
+  "status": "succeeded",
+  "error": null,
+  "created_at": 1718049470,
+  "updated_at": 1718049870,
+  "content": {"video_url": "` + videoURL + `"},
+  "seed": 12345,
+  "resolution": "720p",
+  "ratio": "16:9",
+  "duration": 4,
+  "framespersecond": 24,
+  "usage": {"completion_tokens": 35800, "total_tokens": 35800}
+}`)
+
+	a := &TaskAdaptor{}
+	info, err := a.ParseTaskResult(body)
+	if err != nil {
+		t.Fatalf("ParseTaskResult error: %v", err)
+	}
+	if info.Status != model.TaskStatusSuccess {
+		t.Errorf("status = %v, want success", info.Status)
+	}
+	if info.Url != videoURL {
+		t.Errorf("url = %q, want %q", info.Url, videoURL)
+	}
+	if info.TotalTokens != 35800 {
+		t.Errorf("total_tokens = %d, want 35800", info.TotalTokens)
+	}
+}
+
+// TestArkTerminalStatuses 保证 cancelled / expired 被判为终态。
+// 落到 default 会被当成"仍在运行"，任务无限轮询、配额永不结算。
+func TestArkTerminalStatuses(t *testing.T) {
+	for _, status := range []string{"cancelled", "canceled", "expired"} {
+		body := []byte(`{"id":"cgt-1","status":"` + status + `"}`)
+		a := &TaskAdaptor{}
+		info, err := a.ParseTaskResult(body)
+		if err != nil {
+			t.Fatalf("ParseTaskResult(%s) error: %v", status, err)
+		}
+		if info.Status != model.TaskStatusFailure {
+			t.Errorf("status %s => %v, want failure", status, info.Status)
+		}
+		if info.Reason == "" {
+			t.Errorf("status %s => empty reason", status)
+		}
+	}
+}

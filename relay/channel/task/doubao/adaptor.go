@@ -317,6 +317,22 @@ func isStelloriaBaseURL(baseURL string) bool {
 	return strings.Contains(baseURL, "stelloria")
 }
 
+// isRunyuanBaseURL 判断上游是否为润元（runy.yitd.cn）。
+//
+// 润元与火山 Ark 只差路径：
+//   - 提交 POST /v1/video/tasks（单数 video + tasks，四家里独一份）
+//   - 查询 GET  /v1/video/tasks/{task_id}
+//   - 请求体就是 Ark 的 content[] 结构（text / image_url / video_url / audio_url + role），
+//     ratio / resolution / duration(int) 全部同名同义，因此复用 Ark 分支构造
+//   - 提交返回 {"status":"submitted","task_id":...}，走 DoResponse 的 task_id 分支
+//   - 查询返回 Ark 原生形态 {"id":...,"status":"succeeded","content":{"video_url":...}}，
+//     走 ParseTaskResult 的 Ark 分支
+//
+// 所以只需要在 URL 这一层单独开一支。
+func isRunyuanBaseURL(baseURL string) bool {
+	return strings.Contains(baseURL, "yitd")
+}
+
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
 	// kkidc 使用 OpenAI 兼容路径 /v1/video/generations
@@ -330,6 +346,10 @@ func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) 
 	// Stelloria 使用 /v1/videos/generations（复数 videos）
 	if isStelloriaBaseURL(a.baseURL) {
 		return fmt.Sprintf("%s/v1/videos/generations", a.baseURL), nil
+	}
+	// 润元使用 /v1/video/tasks
+	if isRunyuanBaseURL(a.baseURL) {
+		return fmt.Sprintf("%s/v1/video/tasks", a.baseURL), nil
 	}
 	// 火山引擎原生 Ark
 	return fmt.Sprintf("%s/api/v3/contents/generations/tasks", a.baseURL), nil
@@ -585,6 +605,8 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		// cURL 示例和「响应格式」小节写的都是 /v1/tasks/{id}。这里按二比一取
 		// /v1/tasks/{id}，若上游 404 会自动回退到 /tasks/{id}（见下方重试逻辑）。
 		uri = fmt.Sprintf("%s/v1/tasks/%s", baseUrl, taskID)
+	case isRunyuanBaseURL(baseUrl):
+		uri = fmt.Sprintf("%s/v1/video/tasks/%s", baseUrl, taskID)
 	default:
 		uri = fmt.Sprintf("%s/api/v3/contents/generations/tasks/%s", baseUrl, taskID)
 	}
@@ -985,10 +1007,15 @@ func parseArkTaskResult(resTask *responseTask) (*relaycommon.TaskInfo, error) {
 		taskResult.Url = extractVideoURL(resTask.Content)
 		taskResult.CompletionTokens = resTask.Usage.CompletionTokens
 		taskResult.TotalTokens = resTask.Usage.TotalTokens
-	case "failed":
+	case "failed", "cancelled", "canceled", "expired":
+		// cancelled / expired 是终态，不能落到 default 当作"还在跑"，
+		// 否则任务会被无限轮询、配额也永远不结算。
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = "100%"
 		taskResult.Reason = resTask.Error.Message
+		if taskResult.Reason == "" {
+			taskResult.Reason = "task " + resTask.Status
+		}
 	default:
 		taskResult.Status = model.TaskStatusInProgress
 		taskResult.Progress = "30%"

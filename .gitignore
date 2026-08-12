@@ -2,6 +2,7 @@
 .vscode
 .zed
 .history
+.qoder
 upload
 *.exe
 *.db

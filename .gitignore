@@ -33,3 +33,5 @@ data/
 .gopath
 
 token_estimator_test.go
+bin/*.mp4
+bin/*.py

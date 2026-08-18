@@ -35,6 +35,7 @@ type ProviderName = string
 const (
 	ProviderSeegen    ProviderName = "seegen"
 	ProviderStelloria ProviderName = "stelloria"
+	ProviderRunyuan   ProviderName = "runyuan"
 )
 
 // ProviderCapabilities 声明上游支持哪些能力。
@@ -191,6 +192,7 @@ func matchCase(original, replacement string) string {
 var (
 	seegenProvider    = &seegenAssetsProvider{}
 	stelloriaProvider = &stelloriaAssetsProvider{}
+	runyuanProvider   = &runyuanAssetsProvider{}
 )
 
 // GetAssetsProvider 决定当前渠道使用哪个上游实现。
@@ -205,6 +207,8 @@ func GetAssetsProvider(ch *model.Channel) AssetsProvider {
 		return seegenProvider
 	case ProviderStelloria:
 		return stelloriaProvider
+	case ProviderRunyuan:
+		return runyuanProvider
 	}
 
 	baseURL := ""
@@ -214,6 +218,8 @@ func GetAssetsProvider(ch *model.Channel) AssetsProvider {
 	switch {
 	case strings.Contains(baseURL, "stelloria"):
 		return stelloriaProvider
+	case strings.Contains(baseURL, "runy") || strings.Contains(baseURL, "yitd"):
+		return runyuanProvider
 	case strings.Contains(baseURL, "seegen"):
 		return seegenProvider
 	default:

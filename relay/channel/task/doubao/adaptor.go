@@ -250,9 +250,9 @@ type responseTask struct {
 	Ratio           string          `json:"ratio"`
 	FramesPerSecond int             `json:"framespersecond"`
 	ServiceTier     string          `json:"service_tier"`
-	Tools           []struct {
-		Type string `json:"type"`
-	} `json:"tools"`
+	// Tools 在不同上游之间形态不一致：火山 Ark 返回数组，润元返回空对象 {}。
+	// 声明为 json.RawMessage 避免 strict unmarshal 失败导致整个响应解析挂掉。
+	Tools json.RawMessage `json:"tools"`
 	Usage struct {
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`

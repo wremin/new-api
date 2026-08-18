@@ -41,6 +41,8 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastDetectedModels []string      `json:"upstream_model_update_last_detected_models,omitempty"` // 上次检测到的可加入模型
 	UpstreamModelUpdateLastRemovedModels  []string      `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string      `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
+	RunyuanAssetsAK                       string        `json:"runyuan_assets_ak,omitempty"`                          // 润元素材库 Access Key
+	RunyuanAssetsSK                       string        `json:"runyuan_assets_sk,omitempty"`                          // 润元素材库 Secret Key
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

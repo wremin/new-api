@@ -2949,6 +2949,38 @@ const EditChannelModal = (props) => {
                           }
                         />
                       )}
+
+                      {inputs.type === 54 && (
+                        <>
+                          <Form.Input
+                            field='runyuan_assets_ak'
+                            label={t('润元素材库 Access Key')}
+                            placeholder={t('请输入润元素材库 Access Key')}
+                            value={inputs.runyuan_assets_ak || ''}
+                            onChange={(value) =>
+                              handleChannelOtherSettingsChange(
+                                'runyuan_assets_ak',
+                                value,
+                              )
+                            }
+                            showClear
+                          />
+                          <Form.Input
+                            field='runyuan_assets_sk'
+                            label={t('润元素材库 Secret Key')}
+                            placeholder={t('请输入润元素材库 Secret Key')}
+                            value={inputs.runyuan_assets_sk || ''}
+                            onChange={(value) =>
+                              handleChannelOtherSettingsChange(
+                                'runyuan_assets_sk',
+                                value,
+                              )
+                            }
+                            showClear
+                          />
+                        </>
+                      )}
+
                       {batch ? (
                         inputs.type === 41 &&
                         (inputs.vertex_key_type || 'json') === 'json' ? (

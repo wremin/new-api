@@ -410,7 +410,8 @@ func TestRunyuanUpstreamPath(t *testing.T) {
 }
 
 // TestParseRunyuanTaskResult 用文档给出的润元查询响应验证解析。
-// 形态与火山 Ark 完全一致（顶层 id + content.video_url），应命中 Ark 分支。
+// 形态与火山 Ark 基本一致（顶层 id + content.video_url），应命中 Ark 分支。
+// 润元特殊点：tools 返回空对象 {} 而非数组，必须兼容。
 func TestParseRunyuanTaskResult(t *testing.T) {
 	const videoURL = "https://example.com/video.mp4"
 	body := []byte(`{
@@ -426,6 +427,12 @@ func TestParseRunyuanTaskResult(t *testing.T) {
   "ratio": "16:9",
   "duration": 4,
   "framespersecond": 24,
+  "generate_audio": false,
+  "tools": {},
+  "safety_identifier": "",
+  "draft": false,
+  "draft_task_id": "",
+  "execution_expires_after": 3600,
   "usage": {"completion_tokens": 35800, "total_tokens": 35800}
 }`)
 

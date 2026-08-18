@@ -402,7 +402,7 @@ export const getTaskLogsColumns = ({
           );
         }
 
-        // 视频预览：优先使用 result_url，兼容旧数据 fail_reason 中的 URL
+        // 视频预览：走 new-api 代理接口，避免上游跨域/防盗链限制
         const isVideoTask =
           record.action === TASK_ACTION_GENERATE ||
           record.action === TASK_ACTION_TEXT_GENERATE ||
@@ -413,13 +413,14 @@ export const getTaskLogsColumns = ({
         const resultUrl = record.result_url;
         const hasResultUrl =
           typeof resultUrl === 'string' && /^https?:\/\//.test(resultUrl);
-        if (isSuccess && isVideoTask && hasResultUrl) {
+        if (isSuccess && isVideoTask && hasResultUrl && record.task_id) {
+          const proxyUrl = `${window.location.origin}/v1/videos/${record.task_id}/content`;
           return (
             <a
               href='#'
               onClick={(e) => {
                 e.preventDefault();
-                openVideoModal(resultUrl);
+                openVideoModal(proxyUrl);
               }}
             >
               {t('点击预览视频')}

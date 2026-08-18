@@ -23,6 +23,8 @@ tiktoken_cache
 web/bun.lock
 plans
 .claude
+.workbuddy-ai/
+new-api-test-build
 test
 
 electron/node_modules

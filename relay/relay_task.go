@@ -482,7 +482,9 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	if strings.HasPrefix(ti.Url, "data:") {
 		// data: URI — kept in Data, not ResultURL
 	} else if ti.Url != "" {
-		task.PrivateData.ResultURL = ti.Url
+		// 对外返回代理地址，原始地址保留在 UpstreamResultURL 供代理接口内部使用
+		task.PrivateData.UpstreamResultURL = ti.Url
+		task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 	} else if task.Status == model.TaskStatusSuccess {
 		// No URL from adaptor — construct proxy URL using public task ID
 		task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)

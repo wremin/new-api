@@ -149,7 +149,7 @@ func getVertexVideoURL(channel *model.Channel, task *model.Task) (string, error)
 	if channel == nil || task == nil {
 		return "", fmt.Errorf("invalid channel or task")
 	}
-	if url := strings.TrimSpace(task.GetResultURL()); url != "" && !isTaskProxyContentURL(url, task.TaskID) {
+	if url := strings.TrimSpace(task.GetUpstreamResultURL()); url != "" && !isTaskProxyContentURL(url, task.TaskID) {
 		return url, nil
 	}
 	if url := extractVertexVideoURLFromTaskData(task); url != "" {

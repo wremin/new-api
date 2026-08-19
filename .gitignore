@@ -25,6 +25,7 @@ plans
 .claude
 .workbuddy-ai/
 new-api-test-build
+output.mp4
 test
 
 electron/node_modules

@@ -110,11 +110,11 @@ func VideoProxy(c *gin.Context) {
 		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
 		req.Header.Set("Authorization", "Bearer "+channel.Key)
 	case constant.ChannelTypeDoubaoVideo, constant.ChannelTypeVolcEngine:
-		// Doubao/Seedance video URL is stored in PrivateData.ResultURL
-		videoURL = task.GetResultURL()
+		// Doubao/Seedance video URL is stored in PrivateData.UpstreamResultURL
+		videoURL = task.GetUpstreamResultURL()
 	default:
-		// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
-		videoURL = task.GetResultURL()
+		// Video URL is stored in PrivateData.UpstreamResultURL (fallback to ResultURL / FailReason for old data)
+		videoURL = task.GetUpstreamResultURL()
 	}
 
 	videoURL = strings.TrimSpace(videoURL)

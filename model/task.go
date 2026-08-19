@@ -97,9 +97,10 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key            string `json:"key,omitempty"`
-	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	Key               string `json:"key,omitempty"`
+	UpstreamTaskID    string `json:"upstream_task_id,omitempty"`    // 上游真实 task ID
+	ResultURL         string `json:"result_url,omitempty"`          // 任务成功后的结果 URL（对外暴露，可能是代理地址）
+	UpstreamResultURL string `json:"upstream_result_url,omitempty"` // 上游原始结果 URL（仅内部使用，代理时从这取）
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -127,8 +128,20 @@ func (t *Task) GetUpstreamTaskID() string {
 }
 
 // GetResultURL 获取任务结果 URL（视频地址等）
-// 新数据存在 PrivateData.ResultURL 中；旧数据回退到 FailReason（历史兼容）
+// 优先使用对外暴露的 ResultURL；若存储的是原始上游 URL，则自动转换为代理 URL。
 func (t *Task) GetResultURL() string {
+	if t.PrivateData.ResultURL != "" {
+		return t.PrivateData.ResultURL
+	}
+	return t.FailReason
+}
+
+// GetUpstreamResultURL 获取上游原始结果 URL，仅内部代理使用。
+func (t *Task) GetUpstreamResultURL() string {
+	if t.PrivateData.UpstreamResultURL != "" {
+		return t.PrivateData.UpstreamResultURL
+	}
+	// 兼容旧数据：ResultURL 可能直接是上游地址
 	if t.PrivateData.ResultURL != "" {
 		return t.PrivateData.ResultURL
 	}

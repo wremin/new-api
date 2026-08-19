@@ -448,7 +448,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		} else if taskResult.Url != "" {
 			// Direct upstream URL (e.g. Kling, Ali, Doubao, etc.)
-			task.PrivateData.ResultURL = taskResult.Url
+			// 对外返回代理地址，原始地址保留在 UpstreamResultURL 供代理接口内部使用
+			task.PrivateData.UpstreamResultURL = taskResult.Url
+			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		} else {
 			// No URL from adaptor — construct proxy URL using public task ID
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)

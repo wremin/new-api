@@ -215,3 +215,35 @@ func TestUpdateWithStatus_ConcurrentWinner(t *testing.T) {
 	}
 	assert.Equal(t, 1, winCount, "exactly one goroutine should win the CAS")
 }
+
+// TestResultURLAndUpstreamResultURL 验证代理地址与上游原始地址隔离。
+func TestResultURLAndUpstreamResultURL(t *testing.T) {
+	// 新数据：ResultURL 为代理地址，UpstreamResultURL 为原始上游地址
+	task := &Task{
+		TaskID: "task_abc123",
+		PrivateData: TaskPrivateData{
+			ResultURL:         "https://example.com/v1/videos/task_abc123/content",
+			UpstreamResultURL: "https://upstream.example.com/video.mp4",
+		},
+	}
+	assert.Equal(t, "https://example.com/v1/videos/task_abc123/content", task.GetResultURL())
+	assert.Equal(t, "https://upstream.example.com/video.mp4", task.GetUpstreamResultURL())
+
+	// 旧数据兼容：ResultURL 直接是上游地址
+	task2 := &Task{
+		TaskID: "task_old123",
+		PrivateData: TaskPrivateData{
+			ResultURL: "https://old.upstream.com/video.mp4",
+		},
+	}
+	assert.Equal(t, "https://old.upstream.com/video.mp4", task2.GetResultURL())
+	assert.Equal(t, "https://old.upstream.com/video.mp4", task2.GetUpstreamResultURL())
+
+	// 无 URL 时回退到 FailReason
+	task3 := &Task{
+		TaskID:     "task_empty",
+		FailReason: "timeout",
+	}
+	assert.Equal(t, "timeout", task3.GetResultURL())
+	assert.Equal(t, "timeout", task3.GetUpstreamResultURL())
+}

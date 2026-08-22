@@ -25,11 +25,16 @@ const (
 
 var defaultModelRatio = map[string]float64{
 	//"midjourney":                50,
-	"gpt-4-gizmo-*":  15,
-	"gpt-4o-gizmo-*": 2.5,
-	"gpt-4-all":      15,
-	"gpt-4o-all":     15,
-	"gpt-4":          15,
+	// Seedance 2.0 视频生成（CNY 展示）：
+	// 输入不含视频 46 元 / 1M tokens；输入含视频 28 元 / 1M tokens。
+	// 含视频场景请使用 doubao-seedance-2.0-video。
+	"doubao-seedance-2.0":       46.0 / (2.0 * USD2RMB),
+	"doubao-seedance-2.0-video": 28.0 / (2.0 * USD2RMB),
+	"gpt-4-gizmo-*":             15,
+	"gpt-4o-gizmo-*":            2.5,
+	"gpt-4-all":                 15,
+	"gpt-4o-all":                15,
+	"gpt-4":                     15,
 	//"gpt-4-0314":                   15, //deprecated
 	"gpt-4-0613": 15,
 	"gpt-4-32k":  30,
@@ -327,10 +332,12 @@ var modelRatioMap = types.NewRWMap[string, float64]()
 var completionRatioMap = types.NewRWMap[string, float64]()
 
 var defaultCompletionRatio = map[string]float64{
-	"gpt-4-gizmo-*":  2,
-	"gpt-4o-gizmo-*": 3,
-	"gpt-4-all":      2,
-	"gpt-image-1":    8,
+	"gpt-4-gizmo-*":             2,
+	"gpt-4o-gizmo-*":            3,
+	"gpt-4-all":                 2,
+	"gpt-image-1":               8,
+	"doubao-seedance-2.0":       1,
+	"doubao-seedance-2.0-video": 1,
 }
 
 // InitRatioSettings initializes all model related settings maps

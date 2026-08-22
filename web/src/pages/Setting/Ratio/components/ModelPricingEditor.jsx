@@ -42,7 +42,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import {
   PAGE_SIZE,
-  PRICE_SUFFIX,
+  getPriceSuffix,
   buildSummaryText,
   hasValue,
   useModelPricingEditorState,
@@ -57,7 +57,7 @@ const PriceInput = ({
   value,
   placeholder,
   onChange,
-  suffix = PRICE_SUFFIX,
+  suffix = '$/1M tokens',
   disabled = false,
   extraText = '',
   headerAction = null,
@@ -126,6 +126,8 @@ export default function ModelPricingEditor({
     addModel,
     deleteModel,
     applySelectedModelPricing,
+    priceMode,
+    currencySymbol,
   } = useModelPricingEditorState({
     options,
     refresh,
@@ -185,7 +187,7 @@ export default function ModelPricingEditor({
         title: t('价格摘要'),
         dataIndex: 'summary',
         key: 'summary',
-        render: (_, record) => buildSummaryText(record, t),
+        render: (_, record) => buildSummaryText(record, t, priceMode),
       },
       {
         title: t('操作'),
@@ -414,7 +416,7 @@ export default function ModelPricingEditor({
                     label={t('固定价格')}
                     value={selectedModel.fixedPrice}
                     placeholder={t('输入每次调用价格')}
-                    suffix={t('$/次')}
+                    suffix={`${currencySymbol}/次`}
                     onChange={(value) =>
                       handleNumericFieldChange('fixedPrice', value)
                     }
@@ -433,7 +435,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('输入价格')}
                         value={selectedModel.inputPrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange('inputPrice', value)
                         }
@@ -441,7 +448,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('补全价格')}
                         value={selectedModel.completionPrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange('completionPrice', value)
                         }
@@ -479,7 +491,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('缓存读取价格')}
                         value={selectedModel.cachePrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange('cachePrice', value)
                         }
@@ -508,7 +525,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('缓存创建价格')}
                         value={selectedModel.createCachePrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange('createCachePrice', value)
                         }
@@ -561,7 +583,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('图片输入价格')}
                         value={selectedModel.imagePrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange('imagePrice', value)
                         }
@@ -590,7 +617,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('音频输入价格')}
                         value={selectedModel.audioInputPrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange('audioInputPrice', value)
                         }
@@ -628,7 +660,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('音频补全价格')}
                         value={selectedModel.audioOutputPrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange('audioOutputPrice', value)
                         }
@@ -694,7 +731,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('长文本输入价格')}
                         value={selectedModel.longContextInputPrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange(
                             'longContextInputPrice',
@@ -734,7 +776,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('长文本补全价格')}
                         value={selectedModel.longContextCompletionPrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange(
                             'longContextCompletionPrice',
@@ -777,7 +824,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('长文本缓存读取价格')}
                         value={selectedModel.longContextCachePrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange(
                             'longContextCachePrice',
@@ -820,7 +872,12 @@ export default function ModelPricingEditor({
                       <PriceInput
                         label={t('长文本缓存创建价格')}
                         value={selectedModel.longContextCreateCachePrice}
-                        placeholder={t('输入 $/1M tokens')}
+                        placeholder={
+                          priceMode === 'CNY'
+                            ? t('输入 ¥/1M tokens')
+                            : t('输入 $/1M tokens')
+                        }
+                        suffix={getPriceSuffix(priceMode)}
                         onChange={(value) =>
                           handleNumericFieldChange(
                             'longContextCreateCachePrice',

@@ -21,8 +21,26 @@ import { useEffect, useMemo, useState } from 'react';
 import { API, showError, showSuccess } from '../../../../helpers';
 
 export const PAGE_SIZE = 10;
-export const PRICE_SUFFIX = '$/1M tokens';
+export const getPriceSuffix = (priceMode = 'USD') =>
+  priceMode === 'CNY' ? '¥/1M tokens' : '$/1M tokens';
 const EMPTY_CANDIDATE_MODEL_NAMES = [];
+
+const getPriceMode = () => {
+  if (typeof window === 'undefined') return 'USD';
+  return localStorage.getItem('quota_display_type') || 'USD';
+};
+
+const getUsdExchangeRate = () => {
+  if (typeof window === 'undefined') return 7.3;
+  try {
+    const statusStr = localStorage.getItem('status');
+    if (statusStr) {
+      const s = JSON.parse(statusStr);
+      return s?.usd_exchange_rate || 7.3;
+    }
+  } catch (e) {}
+  return 7.3;
+};
 
 const EMPTY_MODEL = {
   name: '',
@@ -104,10 +122,14 @@ const parseOptionJSON = (rawValue) => {
   }
 };
 
-const ratioToBasePrice = (ratio) => {
+const ratioToDisplayPrice = (ratio, priceMode, usdExchangeRate) => {
   const num = toNumberOrNull(ratio);
   if (num === null) return '';
-  return formatNumber(num * 2);
+  const usdPrice = num * 2;
+  if (priceMode === 'CNY') {
+    return formatNumber(usdPrice * usdExchangeRate);
+  }
+  return formatNumber(usdPrice);
 };
 
 const normalizeCompletionRatioMeta = (rawMeta) => {
@@ -124,7 +146,7 @@ const normalizeCompletionRatioMeta = (rawMeta) => {
   };
 };
 
-const buildModelState = (name, sourceMaps) => {
+const buildModelState = (name, sourceMaps, priceMode, usdExchangeRate) => {
   const modelRatio = toNumericString(sourceMaps.ModelRatio[name]);
   const completionRatio = toNumericString(sourceMaps.CompletionRatio[name]);
   const completionRatioMeta = normalizeCompletionRatioMeta(
@@ -149,14 +171,25 @@ const buildModelState = (name, sourceMaps) => {
   const longContextCreateCacheRatio = toNumericString(
     sourceMaps.LongContextCreateCacheRatio?.[name],
   );
-  const fixedPrice = toNumericString(sourceMaps.ModelPrice[name]);
-  const inputPrice = ratioToBasePrice(modelRatio);
+  let fixedPrice = toNumericString(sourceMaps.ModelPrice[name]);
+  if (priceMode === 'CNY' && hasValue(fixedPrice)) {
+    fixedPrice = formatNumber(Number(fixedPrice) * usdExchangeRate);
+  }
+  const inputPrice = ratioToDisplayPrice(
+    modelRatio,
+    priceMode,
+    usdExchangeRate,
+  );
   const inputPriceNumber = toNumberOrNull(inputPrice);
   const audioInputPrice =
     inputPriceNumber !== null && hasValue(audioRatio)
       ? formatNumber(inputPriceNumber * Number(audioRatio))
       : '';
-  const longContextInputPrice = ratioToBasePrice(longContextModelRatio);
+  const longContextInputPrice = ratioToDisplayPrice(
+    longContextModelRatio,
+    priceMode,
+    usdExchangeRate,
+  );
   const longContextInputPriceNumber = toNumberOrNull(longContextInputPrice);
 
   return {
@@ -320,9 +353,10 @@ export const getModelWarnings = (model, t) => {
   return warnings;
 };
 
-export const buildSummaryText = (model, t) => {
+export const buildSummaryText = (model, t, priceMode = 'USD') => {
+  const symbol = priceMode === 'CNY' ? '¥' : '$';
   if (model.billingMode === 'per-request' && hasValue(model.fixedPrice)) {
-    return `${t('按次')} $${model.fixedPrice} / ${t('次')}`;
+    return `${t('按次')} ${symbol}${model.fixedPrice} / ${t('次')}`;
   }
 
   if (hasValue(model.inputPrice)) {
@@ -343,7 +377,7 @@ export const buildSummaryText = (model, t) => {
       model.longContextCreateCachePrice,
     ].some(hasValue);
     const longContextLabel = hasLongContext ? `，${t('已配置长文本价格')}` : '';
-    return `${t('输入')} $${model.inputPrice}${extraLabel}${longContextLabel}`;
+    return `${t('输入')} ${symbol}${model.inputPrice}${extraLabel}${longContextLabel}`;
   }
 
   return t('未设置价格');
@@ -362,7 +396,7 @@ export const buildOptionalFieldToggles = (model) => ({
   longContextCreateCachePrice: hasValue(model.longContextCreateCachePrice),
 });
 
-const serializeModel = (model, t) => {
+const serializeModel = (model, t, priceMode, usdExchangeRate) => {
   const result = {
     ModelPrice: null,
     ModelRatio: null,
@@ -380,7 +414,12 @@ const serializeModel = (model, t) => {
 
   if (model.billingMode === 'per-request') {
     if (hasValue(model.fixedPrice)) {
-      result.ModelPrice = toNormalizedNumber(model.fixedPrice);
+      const fixedPriceNumber = toNumberOrNull(model.fixedPrice);
+      result.ModelPrice = toNormalizedNumber(
+        priceMode === 'CNY'
+          ? fixedPriceNumber / usdExchangeRate
+          : fixedPriceNumber,
+      );
     }
     return result;
   }
@@ -475,7 +514,11 @@ const serializeModel = (model, t) => {
     return result;
   }
 
-  result.ModelRatio = toNormalizedNumber(inputPrice / 2);
+  result.ModelRatio = toNormalizedNumber(
+    priceMode === 'CNY'
+      ? inputPrice / (2 * usdExchangeRate)
+      : inputPrice / 2,
+  );
 
   if (completionPrice !== null) {
     result.CompletionRatio = toNormalizedNumber(completionPrice / inputPrice);
@@ -508,7 +551,9 @@ const serializeModel = (model, t) => {
   // 长文本价格序列化：长文本输入价格为独立基础，不依赖普通输入价格
   if (longContextInputPrice !== null) {
     result.LongContextModelRatio = toNormalizedNumber(
-      longContextInputPrice / 2,
+      priceMode === 'CNY'
+        ? longContextInputPrice / (2 * usdExchangeRate)
+        : longContextInputPrice / 2,
     );
 
     if (longContextCompletionPrice !== null) {
@@ -544,15 +589,26 @@ const serializeModel = (model, t) => {
   return result;
 };
 
-export const buildPreviewRows = (model, t) => {
+export const buildPreviewRows = (
+  model,
+  t,
+  priceMode = 'USD',
+  usdExchangeRate = 7.3,
+) => {
   if (!model) return [];
+
+  const displayToUsdFactor = priceMode === 'CNY' ? usdExchangeRate : 1;
 
   if (model.billingMode === 'per-request') {
     return [
       {
         key: 'ModelPrice',
         label: 'ModelPrice',
-        value: hasValue(model.fixedPrice) ? model.fixedPrice : t('空'),
+        value: hasValue(model.fixedPrice)
+          ? formatNumber(
+              toNumberOrNull(model.fixedPrice) / displayToUsdFactor,
+            )
+          : t('空'),
       },
     ];
   }
@@ -651,7 +707,7 @@ export const buildPreviewRows = (model, t) => {
     {
       key: 'ModelRatio',
       label: 'ModelRatio',
-      value: formatNumber(inputPrice / 2),
+      value: formatNumber(inputPrice / 2 / displayToUsdFactor),
     },
     {
       key: 'CompletionRatio',
@@ -746,6 +802,15 @@ export function useModelPricingEditorState({
   const [loading, setLoading] = useState(false);
   const [conflictOnly, setConflictOnly] = useState(false);
   const [optionalFieldToggles, setOptionalFieldToggles] = useState({});
+  const [priceMode, setPriceMode] = useState(() => getPriceMode());
+  const [usdExchangeRate, setUsdExchangeRate] = useState(() =>
+    getUsdExchangeRate(),
+  );
+
+  useEffect(() => {
+    setPriceMode(getPriceMode());
+    setUsdExchangeRate(getUsdExchangeRate());
+  }, [options]);
 
   useEffect(() => {
     const sourceMaps = {
@@ -786,7 +851,9 @@ export function useModelPricingEditorState({
     ]);
 
     const nextModels = Array.from(names)
-      .map((name) => buildModelState(name, sourceMaps))
+      .map((name) =>
+        buildModelState(name, sourceMaps, priceMode, usdExchangeRate),
+      )
       .sort((a, b) => a.name.localeCompare(b.name));
 
     setModels(nextModels);
@@ -849,8 +916,8 @@ export function useModelPricingEditorState({
   );
 
   const previewRows = useMemo(
-    () => buildPreviewRows(selectedModel, t),
-    [selectedModel, t],
+    () => buildPreviewRows(selectedModel, t, priceMode, usdExchangeRate),
+    [selectedModel, t, priceMode, usdExchangeRate],
   );
 
   useEffect(() => {
@@ -1173,7 +1240,12 @@ export function useModelPricingEditorState({
       };
 
       for (const model of models) {
-        const serialized = serializeModel(model, t);
+        const serialized = serializeModel(
+          model,
+          t,
+          priceMode,
+          usdExchangeRate,
+        );
         Object.entries(serialized).forEach(([key, value]) => {
           if (value !== null) {
             output[key][model.name] = value;
@@ -1231,5 +1303,8 @@ export function useModelPricingEditorState({
     addModel,
     deleteModel,
     applySelectedModelPricing,
+    priceMode,
+    currencySymbol: priceMode === 'CNY' ? '¥' : '$',
+    usdExchangeRate,
   };
 }

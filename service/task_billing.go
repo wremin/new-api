@@ -258,6 +258,10 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	modelRatio, hasRatioSetting, _ := ratio_setting.GetModelRatio(modelName)
 	// 只有配置了倍率(非固定价格)时才按 token 重新计费
 	if !hasRatioSetting || modelRatio <= 0 {
+		// 上游给了用量却没法结算 —— 静默跳过会让额度停在预扣估值上，必须留声音
+		logger.LogWarn(ctx, fmt.Sprintf(
+			"任务 %s 拿到 %d token，但模型 %s 未配置倍率，差额结算已跳过",
+			task.TaskID, totalTokens, modelName))
 		return
 	}
 
@@ -270,6 +274,9 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		}
 	}
 	if group == "" {
+		logger.LogWarn(ctx, fmt.Sprintf(
+			"任务 %s 拿到 %d token，但取不到用户分组，差额结算已跳过",
+			task.TaskID, totalTokens))
 		return
 	}
 

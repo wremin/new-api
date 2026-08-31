@@ -562,5 +562,32 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
 		return
 	}
-	// 3. 无调整，保持预扣额度
+
+	// 3. 无调整，保持预扣额度。
+	//
+	// 按次计费走到这里是正常的（已在第 0 步返回），但**按量计费**走到这里是异常：
+	// 预扣额度是按 modelRatio/2 估的占位值（等价于假定消耗 50 万 quota 对应的 token 数），
+	// 本就依赖完成后的 token 重算去校正。拿不到用量就等于永久停在这个估值上。
+	//
+	// 这件事过去是完全静默的 —— 账单看起来一切正常，只有把上游账单拉出来逐笔比对
+	// 才会发现偏差。所以这里必须留声音，哪怕它不影响本次扣费。
+	//
+	// status 判断目前是冗余的（调用方只在 SUCCESS 分支置 shouldSettle，失败任务走退款），
+	// 保留它是为了将来若有别的路径复用本函数时不会对失败任务刷告警。
+	if isRatioBilledTask(task) && taskResult.Status == model.TaskStatusSuccess {
+		logger.LogWarn(ctx, fmt.Sprintf(
+			"任务 %s（模型 %s）按量计费，但上游未返回 token 用量，差额结算已跳过；"+
+				"额度停留在预扣估值 %s。请检查上游响应的 usage 字段是否缺失或改名",
+			task.TaskID, taskModelName(task), logger.LogQuota(task.Quota)))
+	}
+}
+
+// isRatioBilledTask 判断任务是否按量（token 倍率）计费。
+//
+// helper.ModelPriceHelperPerCall 只在按量计费分支写 ModelRatio；
+// 按次计费时它保持为 0，且那类任务的 PerCallBilling 为 true、在第 0 步就返回了。
+// 这里再判一次是为了兜住 BillingContext 缺失的历史数据，不让它们误报。
+func isRatioBilledTask(task *model.Task) bool {
+	bc := task.PrivateData.BillingContext
+	return bc != nil && bc.ModelRatio > 0
 }

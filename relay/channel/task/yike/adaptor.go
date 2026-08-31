@@ -436,7 +436,7 @@ func (a *TaskAdaptor) convertToSubmitRequest(req *relaycommon.TaskSubmitReq, ups
 
 // collectMedias 把请求里的素材引用收成上游要的形态。
 //
-// 只接受**已登记**的 MediaId（形如 media-xxx）。Wonder 系列不接受外部 URL，
+// 只接受**已登记**的 MediaId。Wonder 系列不接受外部 URL，
 // 必须先经 ImportMedia 登记。这里对直链一律跳过并让 jobType 退化，
 // 而不是塞给上游让它报一个难懂的错。
 func collectMedias(req *relaycommon.TaskSubmitReq) []Media {
@@ -457,8 +457,11 @@ func collectMedias(req *relaycommon.TaskSubmitReq) []Media {
 	return medias
 }
 
-// normalizeMediaID 接受 media-xxx 与 asset://media-xxx 两种写法，
-// 后者是为了与已有渠道的素材引用习惯保持一致。直链一律返回空串。
+// normalizeMediaID 剥掉 asset:// 前缀，其余原样返回；直链一律返回空串。
+//
+// 不校验 MediaId 的形态。实测上游返回的是 32 位裸十六进制
+// （如 f1005070a53771f1851ef6e7c5486601），**不是**参考文档里写的 media-xxx。
+// 上游随时可能再换形态，加前缀校验只会把能用的素材挡在门外。
 func normalizeMediaID(ref string) string {
 	ref = strings.TrimSpace(ref)
 	ref = strings.TrimPrefix(ref, "asset://")

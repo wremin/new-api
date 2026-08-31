@@ -10,6 +10,8 @@ import "encoding/json"
 //
 // Wonder 系列不接受外部 URL，参考素材必须先经 ImportMedia 登记、
 // GetMedia 轮询到 ThirdPartyAssetStatus=Success，再以 MediaId 传入。
+//
+// MediaId 实测是 32 位裸十六进制，不是参考文档里写的 media-xxx，不要据此做校验。
 type Media struct {
 	Type    string `json:"Type"` // image / video / audio
 	MediaID string `json:"MediaId"`

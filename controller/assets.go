@@ -201,6 +201,20 @@ func RelayAssetCreate(c *gin.Context) {
 		assetServiceError(c, aErr)
 		return
 	}
+	model.RecordAssetLog(c, userId, model.RecordAssetLogParams{
+		Action:     "create",
+		OfficialId: fields.OfficialId,
+		GroupId:    req.GroupId,
+		AssetName:  req.GetName(),
+		AssetType:  fields.AssetType,
+		SourceUrl:  req.Url,
+		Provider:   provider.Name(),
+		ChannelId:  channel.Id,
+		TokenId:    tokenId,
+		TokenName:  c.GetString("token_name"),
+		Group:      service.AssetsRequestGroup(c),
+	})
+
 	asset, err := service.RecordUploadedAsset(userId, tokenId, channel.Id, provider.Name(), fields,
 		service.AssetFallbackFields("", req.GroupId, req.GetName(), req.Url, region))
 	if err != nil {
@@ -505,6 +519,39 @@ func recordBatchAssets(
 		logger.LogError(c.Request.Context(),
 			fmt.Sprintf("failed to record %d batch assets for user %d: %s", len(assets), userId, err.Error()))
 	}
+
+	// 批量只记**一条**汇总日志，不按素材逐条记。
+	// 一次传 100 条就刷 100 行管理日志的话，审计时其他动作全被淹没；
+	// 具体 officialId 放进 Other，仍然可查（超过 50 条只留前 50，避免撑爆字段）。
+	if len(assets) > 0 {
+		ids := make([]string, 0, len(assets))
+		for _, a := range assets {
+			if len(ids) >= 50 {
+				break
+			}
+			ids = append(ids, a.OfficialId)
+		}
+		extra := map[string]interface{}{
+			"batch_id":      batchId,
+			"success_count": len(assets),
+			"total_count":   len(results),
+			"official_ids":  ids,
+		}
+		if len(assets) > len(ids) {
+			extra["official_ids_truncated"] = true
+		}
+		model.RecordAssetLog(c, userId, model.RecordAssetLogParams{
+			Action:     "batch_create",
+			OfficialId: batchId,
+			AssetName:  fmt.Sprintf("%d 条", len(assets)),
+			Provider:   provider.Name(),
+			ChannelId:  channel.Id,
+			TokenId:    tokenId,
+			TokenName:  c.GetString("token_name"),
+			Group:      service.AssetsRequestGroup(c),
+			Extra:      extra,
+		})
+	}
 }
 
 // assetBatchUploadExcel 处理 Excel 批量上传。
@@ -799,6 +846,7 @@ func assetDelete(c *gin.Context, officialId string) {
 			logger.LogError(c.Request.Context(),
 				fmt.Sprintf("failed to soft delete asset %s: %s", officialId, err.Error()))
 		}
+		recordAssetDeleteLog(c, userId, asset, channel.Id, asset.Provider, true)
 		c.JSON(http.StatusOK, gin.H{"officialId": officialId, "deleted": true, "upstreamSkipped": true})
 		return
 	}
@@ -811,7 +859,27 @@ func assetDelete(c *gin.Context, officialId string) {
 		logger.LogError(c.Request.Context(),
 			fmt.Sprintf("failed to soft delete asset %s: %s", officialId, err.Error()))
 	}
+	recordAssetDeleteLog(c, userId, asset, channel.Id, provider.Name(), false)
 	c.JSON(http.StatusOK, gin.H{"officialId": officialId, "deleted": true})
+}
+
+// recordAssetDeleteLog 记录删除。两个出口（上游已切换只清本地、正常删除）都要记，
+// 否则审计时会看到素材凭空消失。upstreamSkipped 落进 Other 以区分两者。
+func recordAssetDeleteLog(c *gin.Context, userId int, asset *model.Asset, channelId int, provider string, upstreamSkipped bool) {
+	model.RecordAssetLog(c, userId, model.RecordAssetLogParams{
+		Action:     "delete",
+		OfficialId: asset.OfficialId,
+		GroupId:    asset.GroupOfficialId,
+		AssetName:  asset.Name,
+		AssetType:  asset.AssetType,
+		SourceUrl:  asset.SourceUrl,
+		Provider:   provider,
+		ChannelId:  channelId,
+		TokenId:    c.GetInt("token_id"),
+		TokenName:  c.GetString("token_name"),
+		Group:      service.AssetsRequestGroup(c),
+		Extra:      map[string]interface{}{"upstream_skipped": upstreamSkipped},
+	})
 }
 
 // ============================

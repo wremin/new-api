@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/common/aliyunsign"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -210,12 +211,22 @@ func (p *yikeAssetsProvider) GetAsset(ctx context.Context, ch *model.Channel, of
 	if aErr != nil {
 		return AssetFields{}, aErr
 	}
-	f := parseYikeMedia(data)
+	f, statusFound := parseYikeMedia(data)
 	if f.OfficialId == "" {
 		f.OfficialId = officialId
 	}
 	f.GroupId = yikeGroupID(f.GroupId)
 	f.Raw = data
+
+	// 读不到判据时状态同样是 Processing，但那是"我们不知道"而不是"上游还在处理"。
+	// 不留声音的话，上游一改字段名，素材就会静默地永远停在处理中 ——
+	// 这个坑真踩过：ThirdPartyAssetStatus 埋在二次编码的 JSON 字符串里，
+	// 按顶层字段找不到，素材实际早已 Success，界面上却一直转圈。
+	if !statusFound {
+		logger.LogWarn(ctx, fmt.Sprintf(
+			"yike: 素材 %s 的响应里找不到 ThirdPartyAssetStatus，暂按处理中对待；"+
+				"上游响应结构可能已变更，请核对 parseYikeMedia", officialId))
+	}
 	return f, nil
 }
 
@@ -266,47 +277,112 @@ func (p *yikeAssetsProvider) CreateGroup(_ context.Context, _ *model.Channel, in
 
 // parseYikeMedia 把 GetMedia 的响应翻译成归一化字段。
 //
-// 响应可能是 {"Media":{...}} 包装，也可能是扁平的，两种都试。
-func parseYikeMedia(data []byte) AssetFields {
-	var raw map[string]any
-	if err := common.Unmarshal(data, &raw); err != nil {
-		return AssetFields{}
+// 真实响应的层级（2026-08-31 实测，与参考文档出入很大）：
+//
+//	{
+//	  "MediaInfo": {
+//	    "MediaId": "f100...",                      ← 裸 32 位十六进制，不是 media-xxx
+//	    "MediaBasicInfo":   { "Title", "MediaType", "InputURL", "Status": "Normal" },
+//	    "FileInfoList":     [ { "FileBasicInfo": { "FileUrl": "<带签名的临时地址>" } } ],
+//	    "MediaDynamicInfo": {
+//	      "DynamicMetaData": { "Data": "{...ThirdPartyAssetStatus...}" }   ← JSON **字符串**
+//	    }
+//	  }
+//	}
+//
+// 关键：ThirdPartyAssetStatus 埋在 DynamicMetaData.Data 里，而那是个**二次编码**的
+// JSON 字符串，不是嵌套对象。按顶层字段去找必然找不到，素材会永远停在 Processing。
+//
+// 返回的 bool 表示是否真的读到了 ThirdPartyAssetStatus。读不到时状态同样是
+// Processing，但那是"我们不知道"，不是"上游还在处理" —— 两者必须能被区分，
+// 否则字段一改名，素材就静默地永远不可用（这个坑已经踩过一次）。
+func parseYikeMedia(data []byte) (AssetFields, bool) {
+	var root map[string]any
+	if err := common.Unmarshal(data, &root); err != nil {
+		return AssetFields{}, false
 	}
-	// 优先取包装层
-	for _, key := range []string{"Media", "media", "MediaInfo"} {
-		if inner, ok := raw[key].(map[string]any); ok {
-			return yikeMediaFields(inner)
+
+	// 剥掉包装层。MediaInfo 是实测的形态，其余是兼容性兜底。
+	media := root
+	for _, key := range []string{"MediaInfo", "Media", "media"} {
+		if inner, ok := root[key].(map[string]any); ok {
+			media = inner
+			break
 		}
 	}
-	return yikeMediaFields(raw)
-}
+	basic := yikeSubMap(media, "MediaBasicInfo", "mediaBasicInfo")
 
-func yikeMediaFields(raw map[string]any) AssetFields {
 	f := AssetFields{
-		OfficialId: stringField(raw, "MediaId", "mediaId", "MediaID", "Id", "id"),
-		Name:       stringField(raw, "Title", "title", "Name", "name"),
-		Url:        stringField(raw, "Url", "URL", "url", "InputURL", "inputURL"),
-		AssetType:  normalizeAssetType(stringField(raw, "MediaType", "mediaType")),
-		FailReason: stringField(raw,
-			"ThirdPartyAssetErrorMessage", "thirdPartyAssetErrorMessage",
-			"ErrorMessage", "errorMessage"),
+		// MediaId 在 MediaInfo 顶层和 MediaBasicInfo 里都有，两处都找
+		OfficialId: yikeField(media, basic, "MediaId", "mediaId", "MediaID", "Id", "id"),
+		Name:       yikeField(basic, media, "Title", "title", "Name", "name"),
+		// Url 取用户当初提交的源地址，不用 FileInfoList 里那个带签名的临时地址
+		Url:       yikeField(basic, media, "InputURL", "inputURL", "InputUrl", "Url", "URL", "url"),
+		AssetType: normalizeAssetType(yikeField(basic, media, "MediaType", "mediaType")),
 	}
 
-	// 关键：可用性看 ThirdPartyAssetStatus，不是 Status。
-	// Status 只说明上游自己入库成功，不代表 Wonder 模型能引用它。
-	third := stringField(raw, "ThirdPartyAssetStatus", "thirdPartyAssetStatus")
-	if third != "" {
+	third, found := yikeThirdPartyStatus(media)
+	if found {
 		f.Status = normalizeAssetStatus(third)
 	} else {
-		// 字段缺失时保守判为处理中，绝不因为缺字段就判成 Active ——
+		// 读不到判据时保守判为处理中，绝不因为缺字段就判成 Active ——
 		// 那会让生成任务带着不可用的素材提交，白扣一次额度。
 		f.Status = model.AssetStatusProcessing
+	}
+	if f.Status == model.AssetStatusFailed {
+		f.FailReason = yikeField(basic, media,
+			"ThirdPartyAssetErrorMessage", "thirdPartyAssetErrorMessage",
+			"ErrorMessage", "errorMessage")
 	}
 
 	if f.AssetType == "" && f.Url != "" {
 		f.AssetType = model.GuessAssetType(f.Url)
 	}
-	return f
+	return f, found
+}
+
+// yikeThirdPartyStatus 找出 ThirdPartyAssetStatus。
+//
+// 先看顶层（万一上游哪天扁平化了），再钻 MediaDynamicInfo.DynamicMetaData.Data ——
+// 那是实测所在，且是个需要二次解析的 JSON 字符串。
+func yikeThirdPartyStatus(media map[string]any) (string, bool) {
+	if v := stringField(media, "ThirdPartyAssetStatus", "thirdPartyAssetStatus"); v != "" {
+		return v, true
+	}
+
+	dyn := yikeSubMap(media, "MediaDynamicInfo", "mediaDynamicInfo")
+	meta := yikeSubMap(dyn, "DynamicMetaData", "dynamicMetaData")
+	rawData := stringField(meta, "Data", "data")
+	if rawData == "" {
+		return "", false
+	}
+
+	var inner map[string]any
+	if err := common.Unmarshal([]byte(rawData), &inner); err != nil {
+		return "", false
+	}
+	if v := stringField(inner, "ThirdPartyAssetStatus", "thirdPartyAssetStatus"); v != "" {
+		return v, true
+	}
+	return "", false
+}
+
+// yikeSubMap 取子对象，取不到返回空 map 而不是 nil，省去调用方逐层判空。
+func yikeSubMap(m map[string]any, keys ...string) map[string]any {
+	for _, k := range keys {
+		if sub, ok := m[k].(map[string]any); ok {
+			return sub
+		}
+	}
+	return map[string]any{}
+}
+
+// yikeField 依次在 primary、fallback 两层里找同一组键名。
+func yikeField(primary, fallback map[string]any, keys ...string) string {
+	if v := stringField(primary, keys...); v != "" {
+		return v
+	}
+	return stringField(fallback, keys...)
 }
 
 // yikeMediaType 归一化成上游要的 image / video / audio。

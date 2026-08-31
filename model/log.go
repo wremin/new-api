@@ -480,3 +480,107 @@ func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64,
 
 	return total, nil
 }
+
+// RecordAssetLogParams 是素材操作日志的入参。
+type RecordAssetLogParams struct {
+	// Action 是操作类型：create / delete / batch_create 等，直接进日志正文
+	Action string
+	// OfficialId 上游素材 ID，出问题时靠它去上游对账
+	OfficialId string
+	GroupId    string
+	AssetName  string
+	AssetType  string
+	SourceUrl  string
+	// Provider 上游实现（yike / runyuan / ...），落进 Other 供筛查
+	Provider  string
+	ChannelId int
+	TokenId   int
+	TokenName string
+	Group     string
+	// Extra 附加字段，与上面的合并进 Other
+	Extra map[string]interface{}
+}
+
+// RecordAssetLog 记录素材操作，类型为 LogTypeManage（前端渲染为「管理」）。
+//
+// 为什么不直接用 RecordLog：那个 helper 只写 userId + 一句文本，
+// 而素材审计真正要回答的是"谁、什么时候、通过哪个渠道、传了哪个素材"。
+// 渠道与 provider 尤其关键 —— 素材只在创建它的上游有效，
+// 事后排查 asset_provider_mismatch 时，没有这两个字段就只能猜。
+//
+// 素材接口本身不计费，因此 Quota / tokens 恒为 0，不会污染消费统计。
+func RecordAssetLog(c *gin.Context, userId int, params RecordAssetLogParams) {
+	username := c.GetString("username")
+	requestId := c.GetString(common.RequestIdKey)
+
+	other := map[string]interface{}{
+		"asset_action": params.Action,
+		"official_id":  params.OfficialId,
+	}
+	if params.GroupId != "" {
+		other["asset_group_id"] = params.GroupId
+	}
+	if params.AssetType != "" {
+		other["asset_type"] = params.AssetType
+	}
+	if params.SourceUrl != "" {
+		other["source_url"] = params.SourceUrl
+	}
+	if params.Provider != "" {
+		other["provider"] = params.Provider
+	}
+	for k, v := range params.Extra {
+		other[k] = v
+	}
+
+	// IP 是否记录尊重用户自身设置，与 RecordErrorLog 保持一致
+	needRecordIp := false
+	if settingMap, err := GetUserSetting(userId, false); err == nil && settingMap.RecordIpLog {
+		needRecordIp = true
+	}
+
+	content := fmt.Sprintf("素材%s：%s", assetActionLabel(params.Action), params.OfficialId)
+	if params.AssetName != "" {
+		content = fmt.Sprintf("素材%s：%s（%s）", assetActionLabel(params.Action), params.AssetName, params.OfficialId)
+	}
+
+	log := &Log{
+		UserId:    userId,
+		Username:  username,
+		CreatedAt: common.GetTimestamp(),
+		Type:      LogTypeManage,
+		Content:   content,
+		TokenName: params.TokenName,
+		// ModelName 留空：素材不属于任何模型，填了会污染按模型的统计
+		ChannelId: params.ChannelId,
+		TokenId:   params.TokenId,
+		Group:     params.Group,
+		Ip: func() string {
+			if needRecordIp {
+				return c.ClientIP()
+			}
+			return ""
+		}(),
+		RequestId: requestId,
+		Other:     common.MapToJsonStr(other),
+	}
+	if err := LOG_DB.Create(log).Error; err != nil {
+		logger.LogError(c, "failed to record asset log: "+err.Error())
+	}
+}
+
+// assetActionLabel 把动作码转成日志正文里的中文，未知动作原样输出。
+func assetActionLabel(action string) string {
+	switch action {
+	case "create":
+		return "上传"
+	case "batch_create":
+		return "批量上传"
+	case "delete":
+		return "删除"
+	case "create_group":
+		return "组创建"
+	default:
+		return action
+	}
+}

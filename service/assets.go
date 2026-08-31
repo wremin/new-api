@@ -36,6 +36,9 @@ const (
 var assetsChannelTypes = []int{
 	constant.ChannelTypeDoubaoVideo,
 	constant.ChannelTypeVolcEngine,
+	// 万象一刻的参考素材必须先经 ImportMedia 登记才能被生成任务引用，
+	// 不进这个列表素材接口就永远解析不到它的渠道。
+	constant.ChannelTypeYike,
 }
 
 // AssetsError 携带业务错误码与 HTTP 状态码，便于控制器统一转成 OpenAI 风格错误体。

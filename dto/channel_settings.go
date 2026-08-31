@@ -43,6 +43,7 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateIgnoredModels      []string      `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	RunyuanAssetsAK                       string        `json:"runyuan_assets_ak,omitempty"`                          // 润元素材库 Access Key
 	RunyuanAssetsSK                       string        `json:"runyuan_assets_sk,omitempty"`                          // 润元素材库 Secret Key
+	YikeCreditUsdRate                     float64       `json:"yike_credit_usd_rate,omitempty"`                       // 万象一刻：1 credit 折合多少美元；为 0 时不按上游实际计费结算，保持预扣
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

@@ -193,6 +193,7 @@ var (
 	seegenProvider    = &seegenAssetsProvider{}
 	stelloriaProvider = &stelloriaAssetsProvider{}
 	runyuanProvider   = &runyuanAssetsProvider{}
+	yikeProvider      = &yikeAssetsProvider{}
 )
 
 // GetAssetsProvider 决定当前渠道使用哪个上游实现。
@@ -209,6 +210,8 @@ func GetAssetsProvider(ch *model.Channel) AssetsProvider {
 		return stelloriaProvider
 	case ProviderRunyuan:
 		return runyuanProvider
+	case ProviderYike:
+		return yikeProvider
 	}
 
 	baseURL := ""
@@ -220,6 +223,10 @@ func GetAssetsProvider(ch *model.Channel) AssetsProvider {
 		return stelloriaProvider
 	case strings.Contains(baseURL, "runy") || strings.Contains(baseURL, "yitd"):
 		return runyuanProvider
+	// yike.<region>.aliyuncs.com —— 匹配 "yike." 而不是裸词 "yike"，
+	// 否则任何含 yike 的自定义域名都会被误判到这里
+	case strings.Contains(baseURL, "yike."):
+		return yikeProvider
 	case strings.Contains(baseURL, "seegen"):
 		return seegenProvider
 	default:

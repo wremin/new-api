@@ -121,3 +121,33 @@ func contains(s, sub string) bool {
 		return false
 	})()
 }
+
+// TestSelectAssetsChannelAutoGroup "auto" 是占位符，不能当真实分组名去筛。
+//
+// 令牌分组为 auto 时，middleware/auth.go 会把字面量 "auto" 写进上下文。
+// 若当成真实分组，报错会变成"没有渠道绑定到 auto 分组"，
+// 管理员照做就会去加一个名叫 auto 的分组 —— 把人带偏。
+func TestSelectAssetsChannelAutoGroup(t *testing.T) {
+	// 多渠道 + auto → 应当报旧的 ambiguous，且**不提** auto 分组
+	_, aErr := selectAssetsChannel([]*model.Channel{ch(1, "a"), ch(2, "b")}, "auto")
+	if aErr == nil || aErr.Code != AssetErrChannelAmbiguous {
+		t.Fatalf("auto + 多渠道应报 ambiguous，实际 %v", aErr)
+	}
+	if contains(aErr.Message, "auto") {
+		t.Errorf("报错不应把 auto 当成分组名提出来：%s", aErr.Message)
+	}
+
+	// 单渠道 + auto → 正常返回，不受影响
+	only := ch(1, "a")
+	got, aErr := selectAssetsChannel([]*model.Channel{only}, "auto")
+	if aErr != nil || got != only {
+		t.Errorf("auto + 单渠道应正常返回，实际 got=%v err=%v", got, aErr)
+	}
+
+	// 确认没有渠道会因为叫 auto 就被选中（避免有人真去加这个分组时行为诡异）
+	weird := ch(2, "auto")
+	got, aErr = selectAssetsChannel([]*model.Channel{ch(1, "a"), weird}, "auto")
+	if aErr == nil {
+		t.Errorf("即使有渠道绑了 auto，也不该被 auto 选中（应仍是 ambiguous），实际选中 %v", got)
+	}
+}

@@ -149,6 +149,15 @@ func GetAssetsChannelForGroup(group string) (*model.Channel, *AssetsError) {
 // 这段逻辑决定素材落到哪个上游，选错的代价是客户的素材集体失效，
 // 不适合只靠"看起来对"。
 func selectAssetsChannel(matched []*model.Channel, group string) (*model.Channel, *AssetsError) {
+	// "auto" 不是真实分组名，是"让系统自己挑"的占位符（见 middleware/auth.go：
+	// 令牌分组为 auto 时会原样写进 ContextKeyUsingGroup）。
+	// 任何渠道的分组列表里都不会有它，拿它去筛只会得到一句
+	// "没有渠道绑定到 auto 分组" —— 管理员照着改会去加一个叫 auto 的分组，越走越远。
+	// 当成"分组未知"处理，直接走旧逻辑。
+	if group == "auto" {
+		group = ""
+	}
+
 	// 分组筛选只在确实有歧义时介入。单渠道部署完全不受影响，连分组都不用配。
 	if group != "" && len(matched) > 1 {
 		var byGroup []*model.Channel

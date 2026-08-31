@@ -178,18 +178,16 @@ ImportMedia → GetMedia 轮询 ThirdPartyAssetStatus=Success → 提交任务�
 
 ## 6. 尚未验证的部分
 
-### 签名无法本地验证 ⚠️
+### 签名 —— 已由真实请求验证 ✅
 
-润元那次可以拿生产已验证的 `jimeng.Sign` 做逐字节交叉校验，**万象一刻没有这样的参照**。
-单测能保证的只是"实现与算法描述一致"（含那条钉死无密钥派生链的断言），
-**不能**保证与阿里云服务端一致。
+2026-08-31 用 `bin/test_yike.py` 打通全链路：提交 → 轮询 → 出片，
+阿里云接受了 `common/aliyunsign` 产出的 `Authorization`。
 
-建议的验证方式（需要你的网络与一组 RAM AK/SK）：
-1. 用官方 Python SDK 发一次真实请求，抓下 `Authorization` 头；
-2. 固定 AK、时间戳、nonce、请求体；
-3. 断言 Go 实现产出同一个签名。
+这意味着 ACS3-HMAC-SHA256 的实现是正确的，**包括与火山最容易混淆的那条差异**：
+直接用 SecretKey 签一次，没有 kDate→kRegion→kService→kSigning 派生链。
+`sign_test.go` 里 `TestSignNoKeyDerivation` 那条断言现在有了生产背书。
 
-在这之前，签名正确性属于**未验证**状态。
+原先计划的"官方 SDK 金样本比对"不再需要 —— 真实请求是更强的证据。
 
 ### 待联调核对的字段名
 

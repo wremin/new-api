@@ -47,7 +47,7 @@ func assetServiceError(c *gin.Context, err *service.AssetsError) {
 
 // resolveAssetsProvider 取本期唯一的素材渠道及其上游实现，失败时已写入响应。
 func resolveAssetsProvider(c *gin.Context) (*model.Channel, service.AssetsProvider, bool) {
-	channel, aErr := service.GetAssetsChannel()
+	channel, aErr := service.GetAssetsChannelForGroup(service.AssetsRequestGroup(c))
 	if aErr != nil {
 		assetServiceError(c, aErr)
 		return nil, nil, false
@@ -139,7 +139,7 @@ func toAssetItem(a *model.Asset, verbose bool) dto.AssetItemResponse {
 // assetCapabilities 让前端与客户端知道当前上游支持哪些能力，
 // 从而隐藏 / 禁用不可用的入口，而不是发一个注定 501 的请求。
 func assetCapabilities(c *gin.Context) {
-	channel, aErr := service.GetAssetsChannel()
+	channel, aErr := service.GetAssetsChannelForGroup(service.AssetsRequestGroup(c))
 	if aErr != nil {
 		assetServiceError(c, aErr)
 		return
@@ -254,7 +254,7 @@ func RelayAssetList(c *gin.Context) {
 	// 状态同步是同步的上游 HTTP 调用，默认不在列表接口里做，避免拖慢响应。
 	// 前端轮询与用户主动刷新时带 refresh=true，此时才回源同步。
 	if c.Query("refresh") == "true" {
-		if channel, aErr := service.GetAssetsChannel(); aErr == nil {
+		if channel, aErr := service.GetAssetsChannelForGroup(service.AssetsRequestGroup(c)); aErr == nil {
 			service.SyncPendingAssets(c.Request.Context(), channel, userId, 20)
 		}
 	}

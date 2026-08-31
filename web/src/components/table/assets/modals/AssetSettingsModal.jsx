@@ -163,6 +163,8 @@ const AssetSettingsModal = ({
               <Radio value='auto'>{t('自动探测')}</Radio>
               <Radio value='seegen'>seegen</Radio>
               <Radio value='stelloria'>stelloria</Radio>
+              <Radio value='runyuan'>runyuan</Radio>
+              <Radio value='yike'>yike</Radio>
             </RadioGroup>
             <Text type='tertiary' size='small' className='block mt-1'>
               {t('自动探测会根据素材渠道的 base_url 判断上游。')}

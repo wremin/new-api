@@ -117,7 +117,7 @@ func AssetRefCheck() func(c *gin.Context) {
 		// 走到这里说明请求确实引用了 asset://。此时如果连素材渠道都解析不出来，
 		// 这个引用就不可能有效——必须 fail closed 直接报错，而不是放行让它
 		// 带着一个解析不了的 asset:// 打到上游去换一句语焉不详的报错。
-		channel, aErr := service.GetAssetsChannel()
+		channel, aErr := service.GetAssetsChannelForGroup(service.AssetsRequestGroup(c))
 		if aErr != nil {
 			status := aErr.StatusCode
 			if status == 0 {

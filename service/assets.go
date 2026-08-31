@@ -15,6 +15,8 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/gin-gonic/gin"
 )
 
 // 素材接口的业务错误码，直接透出给客户端（OpenAI 风格 error.code）。
@@ -64,7 +66,46 @@ func NewAssetsError(code, message string, statusCode int) *AssetsError {
 //  3. 探测到 0 个 -> assets_channel_not_configured；多于 1 个 -> assets_channel_ambiguous。
 //
 // 不在启动时校验（渠道可能后建），首次调用素材接口时才校验。
+//
+// Deprecated: 优先用 GetAssetsChannelForGroup。多上游共存时，
+// 不带分组的解析必然在两个渠道之间二选一失败。
 func GetAssetsChannel() (*model.Channel, *AssetsError) {
+	return GetAssetsChannelForGroup("")
+}
+
+// AssetsRequestGroup 取本次请求应当使用的分组。
+//
+// API 客户端走 TokenAuth，分组已在 middleware/auth.go 写进上下文；
+// 控制台会话鉴权只 set 了 id（见 TokenOrUserAuth 的 session 分支），
+// 因此要回落到用户自身的分组，否则控制台上传永远匹配不到渠道。
+func AssetsRequestGroup(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if g := common.GetContextKeyString(c, constant.ContextKeyUsingGroup); g != "" {
+		return g
+	}
+	if userId := c.GetInt("id"); userId > 0 {
+		if g, err := model.GetUserGroup(userId, false); err == nil {
+			return g
+		}
+	}
+	return ""
+}
+
+// GetAssetsChannelForGroup 按请求分组解析素材渠道。
+//
+// 为什么必须按分组解析：视频任务的渠道本来就是 distributor 按分组选的，
+// 而素材渠道过去是全局单选。两者一旦指向不同上游，用户上传的素材
+// 就注定在执行任务的那个上游无效（asset_provider_mismatch）。
+// 按同一个维度解析，才能保证"素材落在哪"和"任务在哪跑"是一致的。
+//
+// 解析顺序（刻意保守，确保存量部署行为不变）：
+//  1. assets_setting.channel_id 显式指定 —— 最高优先级，与改动前完全一致；
+//  2. 按分组筛选，恰好命中一个就用它；
+//  3. 分组筛不出结果时回落到旧的全局单选逻辑 ——
+//     没给渠道配分组的老部署不能因为这次改动突然不能传素材。
+func GetAssetsChannelForGroup(group string) (*model.Channel, *AssetsError) {
 	if id := operation_setting.GetAssetsChannelId(); id > 0 {
 		ch, err := model.CacheGetChannel(id)
 		if err != nil || ch == nil {
@@ -99,6 +140,38 @@ func GetAssetsChannel() (*model.Channel, *AssetsError) {
 		}
 	}
 
+	return selectAssetsChannel(matched, group)
+}
+
+// selectAssetsChannel 从候选渠道中挑一个，是分组路由的**全部决策逻辑**。
+//
+// 单独拆出来是因为它不碰数据库，可以被完整覆盖测试 ——
+// 这段逻辑决定素材落到哪个上游，选错的代价是客户的素材集体失效，
+// 不适合只靠"看起来对"。
+func selectAssetsChannel(matched []*model.Channel, group string) (*model.Channel, *AssetsError) {
+	// 分组筛选只在确实有歧义时介入。单渠道部署完全不受影响，连分组都不用配。
+	if group != "" && len(matched) > 1 {
+		var byGroup []*model.Channel
+		for _, ch := range matched {
+			if common.StringsContains(ch.GetGroups(), group) {
+				byGroup = append(byGroup, ch)
+			}
+		}
+		switch len(byGroup) {
+		case 1:
+			return byGroup[0], nil
+		case 0:
+			// 一个都没匹配上：多半是渠道压根没配分组（老部署）。
+			// 此时不报错，落回下面的旧逻辑，保持与改动前一致。
+		default:
+			return nil, NewAssetsError(AssetErrChannelAmbiguous,
+				fmt.Sprintf("group %q matches %d assets-capable channels, "+
+					"please narrow the channel groups or set assets channel id explicitly",
+					group, len(byGroup)),
+				http.StatusServiceUnavailable)
+		}
+	}
+
 	switch len(matched) {
 	case 0:
 		return nil, NewAssetsError(AssetErrChannelNotConfigured,
@@ -107,8 +180,15 @@ func GetAssetsChannel() (*model.Channel, *AssetsError) {
 	case 1:
 		return matched[0], nil
 	default:
+		// 有多个候选，而分组既没能区分、也没配。
+		// 报错里带上分组，否则管理员只看到"有 N 个渠道"，无从下手。
+		hint := "please set assets channel id explicitly in operation settings"
+		if group != "" {
+			hint = fmt.Sprintf("no channel is bound to group %q; "+
+				"assign the group to exactly one of them, or set assets channel id explicitly", group)
+		}
 		return nil, NewAssetsError(AssetErrChannelAmbiguous,
-			fmt.Sprintf("found %d enabled Seedance channels, please set assets channel id explicitly in operation settings", len(matched)),
+			fmt.Sprintf("found %d enabled Seedance channels, %s", len(matched), hint),
 			http.StatusServiceUnavailable)
 	}
 }

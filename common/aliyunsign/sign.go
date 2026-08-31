@@ -35,7 +35,13 @@ type Credentials struct {
 //
 // 沿用仓库既有的云厂商密钥书写约定（见 relay/channel/jimeng/sign.go）：
 // 渠道 Key 字段用 "|" 分隔 AK 与 SK。
+//
+// 额外容错全角竖线 "｜"（U+FF5C）：中文输入法下敲竖线默认出的就是它，
+// 而它与半角 "|"（U+007C）在界面上几乎无法分辨 —— 报错信息里印的是半角，
+// 用户对照着看只会觉得自己填对了。AK/SK 本身是字母数字，
+// 不可能合法包含任一种竖线，所以这个替换不会误伤。
 func ParseAKSK(apiKey string) (Credentials, error) {
+	apiKey = strings.ReplaceAll(apiKey, "｜", "|")
 	parts := strings.Split(apiKey, "|")
 	if len(parts) != 2 {
 		return Credentials{}, errors.New("invalid api key format: expected 'AccessKeyId|AccessKeySecret'")

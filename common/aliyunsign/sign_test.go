@@ -25,6 +25,34 @@ func TestParseAKSK(t *testing.T) {
 	}
 }
 
+// TestParseAKSKFullwidthPipe 中文输入法敲出的全角竖线必须也能解析。
+//
+// 全角 "｜"(U+FF5C) 与半角 "|"(U+007C) 在界面上几乎无法分辨，而报错信息里
+// 印的是半角 —— 不容错的话用户会对着一条"格式错误"反复确认自己填对了。
+func TestParseAKSKFullwidthPipe(t *testing.T) {
+	for _, in := range []string{
+		"LTAI5tXXXX｜secretXXXX",     // 全角
+		"LTAI5tXXXX|secretXXXX",     // 半角
+		" LTAI5tXXXX ｜ secretXXXX ", // 全角 + 空格
+	} {
+		creds, err := ParseAKSK(in)
+		if err != nil {
+			t.Errorf("ParseAKSK(%q) 失败: %v", in, err)
+			continue
+		}
+		if creds.AccessKeyID != "LTAI5tXXXX" || creds.AccessKeySecret != "secretXXXX" {
+			t.Errorf("ParseAKSK(%q) = %+v", in, creds)
+		}
+	}
+
+	// 容错不能放宽到把错误格式也放行
+	for _, bad := range []string{"onlyak", "ak｜sk｜extra", "｜sk", "ak｜"} {
+		if _, err := ParseAKSK(bad); err == nil {
+			t.Errorf("ParseAKSK(%q) 应当失败", bad)
+		}
+	}
+}
+
 // TestPercentEncode 锁定阿里云与 url.QueryEscape 的三处差异。
 // 任何一处不一致都会让 CanonicalQueryString 算错，进而 403。
 func TestPercentEncode(t *testing.T) {

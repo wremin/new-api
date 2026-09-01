@@ -541,6 +541,25 @@ func truncateBase64(s string) string {
 	return s[:maxKeep] + "..."
 }
 
+// taskUsageFromResult 从轮询结果里取出用于日志展示的 token 用量。
+//
+// 上游只给 total 不给 completion 时（seedance 就是 total == completion），
+// 把差额算进输入，保证日志页上「输入 + 输出 == 总数」对得上；
+// 硬填 0 会让两列加起来不等于计费依据，对账时反而更费解。
+func taskUsageFromResult(taskResult *relaycommon.TaskInfo) TaskUsage {
+	if taskResult == nil {
+		return TaskUsage{}
+	}
+	usage := TaskUsage{
+		CompletionTokens: taskResult.CompletionTokens,
+		TotalTokens:      taskResult.TotalTokens,
+	}
+	if usage.TotalTokens > usage.CompletionTokens {
+		usage.PromptTokens = usage.TotalTokens - usage.CompletionTokens
+	}
+	return usage
+}
+
 // settleTaskBillingOnComplete 任务完成时的统一计费调整。
 // 优先级：1. adaptor.AdjustBillingOnComplete 返回正数 → 使用 adaptor 计算的额度
 //
@@ -552,14 +571,17 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
 		return
 	}
+	// 用量只用于写日志，不参与计费 —— 金额由下面两条路径各自算出。
+	usage := taskUsageFromResult(taskResult)
+
 	// 1. 优先让 adaptor 决定最终额度
 	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {
-		RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
+		recalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整", usage)
 		return
 	}
 	// 2. 回退到 token 重算
 	if taskResult.TotalTokens > 0 {
-		RecalculateTaskQuotaByTokens(ctx, task, taskResult.TotalTokens)
+		RecalculateTaskQuotaByTokens(ctx, task, usage)
 		return
 	}
 

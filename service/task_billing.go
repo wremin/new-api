@@ -185,6 +185,24 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
 // actualQuota 是任务完成后的实际应扣额度，与预扣额度 (task.Quota) 做差额结算。
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string) {
+	recalculateTaskQuota(ctx, task, actualQuota, reason, TaskUsage{})
+}
+
+// TaskUsage 是任务的 token 用量。
+//
+// **只用于写日志，不参与计费** —— 计费金额由调用方算好后以 actualQuota 传入。
+// 单独立个类型是为了让"这些数字不影响钱"这件事在签名上就看得出来。
+type TaskUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+}
+
+// recalculateTaskQuota 是差额结算的实现。
+//
+// 与公开的 RecalculateTaskQuota 分开，是为了在不改动既有签名（7 处测试 + 1 处调用）
+// 的前提下把用量带进日志。
+func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, usage TaskUsage) {
 	if actualQuota <= 0 {
 		return
 	}
@@ -240,14 +258,19 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		Quota:     logQuota,
 		TokenId:   task.PrivateData.TokenId,
 		Group:     task.Group,
-		Other:     other,
+		// 让日志页的「输入 / 输出」两列能显示真实用量。
+		// 这两个数不影响扣费，扣费用的是上面的 Quota。
+		PromptTokens:     usage.PromptTokens,
+		CompletionTokens: usage.CompletionTokens,
+		Other:            other,
 	})
 }
 
 // RecalculateTaskQuotaByTokens 根据实际 token 消耗重新计费（异步差额结算）。
 // 当任务成功且返回了 totalTokens 时，根据模型倍率和分组倍率重新计算实际扣费额度，
 // 与预扣费的差额进行补扣或退还。支持钱包和订阅计费来源。
-func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTokens int) {
+func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, usage TaskUsage) {
+	totalTokens := usage.TotalTokens
 	if totalTokens <= 0 {
 		return
 	}
@@ -304,5 +327,5 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	actualQuota := int(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
-	RecalculateTaskQuota(ctx, task, actualQuota, reason)
+	recalculateTaskQuota(ctx, task, actualQuota, reason, usage)
 }

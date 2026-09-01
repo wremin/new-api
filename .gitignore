@@ -38,6 +38,7 @@ data/
 token_estimator_test.go
 bin/*.mp4
 bin/*.py
+bin/__pycache__/
 
 # 临时暂存目录（待人工删除）
 _to_delete/

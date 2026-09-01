@@ -224,3 +224,43 @@ func TestYikeCapabilities(t *testing.T) {
 		t.Error("批量由 fallbackBatchCreate 兜底，对下游可用，应声明支持")
 	}
 }
+
+// TestYikeMediaIDInError 重复登记的幂等处理。
+//
+// 上游按 inputUrl 去重：同一个 URL 第二次登记回 400 MediaAlreadyExist，
+// 不回那条已有素材。这让客户重复上传同一张图拿到的是一句与
+// 「素材已经在那儿」毫无关联的报错，而正确答案就写在错误文案里。
+//
+// 第一条用例是 2026-09-01 的**生产实测原文**，不是照文档臆造的 ——
+// 之前在 GetMedia 上吃过这个亏：拿自己编的样例当夹具，
+// 测出来的只是「我的假设自洽」，不是「我的解析对」。
+func TestYikeMediaIDInError(t *testing.T) {
+	real := `MediaAlreadyExist: The media with the given inputUrl ` +
+		`"https://sr-videos-metamind.oss-cn-hangzhou.aliyuncs.com/handsome_male_1.jpeg" ` +
+		`has already been registered with mediaId "0d6f1a50a5fd71f1802ae7e7d5496601". ` +
+		`(request id: 202609011222327380999458268d9d6NeJPcSPy)`
+	if got := yikeMediaIDInError(real); got != "0d6f1a50a5fd71f1802ae7e7d5496601" {
+		t.Errorf("生产实测文案没抠出正确 id，得到 %q", got)
+	}
+
+	cases := []struct{ name, in, want string }{
+		{"中文引号", `MediaAlreadyExist: ... mediaId “abc123def456”`, "abc123def456"},
+		{"无引号", `MediaAlreadyExist: mediaId: abc123def456.`, "abc123def456"},
+		{"大写字段名", `MediaAlreadyExist: ... MediaId "abc123def456"`, "abc123def456"},
+		{"URL 里也含 mediaId 字样", `MediaAlreadyExist: inputUrl "https://x/mediaId/junk" ` +
+			`registered with mediaId "realid00realid00"`, "realid00realid00"},
+
+		// 以下都必须返回空串。空串的语义是「照常抛出原错误」，也就是退回今天的行为 ——
+		// 这是安全侧：上游改文案的代价是功能退化，而不是拿到一个错的 id 去引用。
+		{"别的错误码", `MediaNotFound: mediaId "abc123def456"`, ""},
+		{"没有 mediaId 字段", `MediaAlreadyExist: already registered`, ""},
+		{"id 太短", `MediaAlreadyExist: mediaId "ab"`, ""},
+		{"分隔符里混入怪字符", `MediaAlreadyExist: mediaId <<abc123def456>>`, ""},
+		{"空文案", ``, ""},
+	}
+	for _, c := range cases {
+		if got := yikeMediaIDInError(c.in); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}

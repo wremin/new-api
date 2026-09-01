@@ -178,16 +178,27 @@ func (p *yikeAssetsProvider) CreateAsset(ctx context.Context, ch *model.Channel,
 	}
 
 	data, aErr := callYike(ctx, ch, "ImportMedia", payload)
-	if aErr != nil {
-		return AssetFields{}, aErr
-	}
 
-	var raw map[string]any
-	_ = common.Unmarshal(data, &raw)
-	mediaID := stringField(raw, "MediaId", "mediaId", "MediaID", "Id", "id")
-	if mediaID == "" {
-		return AssetFields{}, NewAssetsError(AssetErrUpstream,
-			"upstream did not return a MediaId", http.StatusBadGateway)
+	var mediaID string
+	if aErr != nil {
+		// 上游按 inputUrl 去重，同一 URL 第二次登记回 400 而不是回那条已有素材。
+		// 但 mediaId 就写在错误文案里，抠出来当成功返回，让重复登记变成幂等 ——
+		// 否则客户重复上传同一张图，拿到的是一句与「素材已经在那儿」毫无关联的报错。
+		mediaID = yikeMediaIDInError(aErr.Message)
+		if mediaID == "" {
+			return AssetFields{}, aErr
+		}
+		logger.LogInfo(ctx, fmt.Sprintf(
+			"yike: inputUrl already registered upstream, reusing mediaId %s", mediaID))
+		data = nil
+	} else {
+		var raw map[string]any
+		_ = common.Unmarshal(data, &raw)
+		mediaID = stringField(raw, "MediaId", "mediaId", "MediaID", "Id", "id")
+		if mediaID == "" {
+			return AssetFields{}, NewAssetsError(AssetErrUpstream,
+				"upstream did not return a MediaId", http.StatusBadGateway)
+		}
 	}
 
 	return AssetFields{
@@ -407,4 +418,77 @@ func yikeGroupID(groupID string) string {
 		return yikeDefaultGroupID
 	}
 	return groupID
+}
+
+// yikeMediaIDInError 从 MediaAlreadyExist 的错误文案里抠出已有素材的 mediaId。
+//
+// 上游按 inputUrl 去重：同一个 URL 第二次登记不会回那条已有素材，
+// 而是回 400 MediaAlreadyExist —— 但它把 mediaId 明文写在了错误信息里：
+//
+//	MediaAlreadyExist: The media with the given inputUrl "https://..." has
+//	already been registered with mediaId "0d6f1a50a5fd71f1802ae7e7d5496601".
+//
+// 解析错误文案是下策，但这是唯一的信息来源：上游没有「按 url 查 media」的接口。
+// 兜底是安全的 —— 认不出就返回空串，调用方照常把原错误抛出去，不会比现在更糟。
+// 换言之上游改文案的代价是「退回今天的行为」，而不是「拿到一个错的 id」。
+//
+// 不校验形态（实测是 32 位裸十六进制，但上游随时可能换），只要求它是一段
+// 长度合理的标识符字符 —— 加形态校验只会把能用的素材挡在门外。
+func yikeMediaIDInError(msg string) string {
+	if !strings.Contains(msg, "MediaAlreadyExist") {
+		return ""
+	}
+	// 用 LastIndex：inputUrl 本身也可能含 "mediaId" 字样，真正的那个在末尾
+	i := strings.LastIndex(msg, "mediaId")
+	if i < 0 {
+		i = strings.LastIndex(msg, "MediaId")
+	}
+	if i < 0 {
+		return ""
+	}
+
+	rest := msg[i+len("mediaId"):]
+	start := -1
+	for j, r := range rest {
+		if isYikeIDRune(r) {
+			start = j
+			break
+		}
+		if !isYikeIDSeparator(r) {
+			return "" // 出现意料之外的字符，说明文案不是预期格式，不猜
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	end := len(rest)
+	for j, r := range rest[start:] {
+		if !isYikeIDRune(r) {
+			end = start + j
+			break
+		}
+	}
+
+	id := rest[start:end]
+	if len(id) < 8 || len(id) > 128 {
+		return "" // 太短多半抠到了别的词，太长不像 id
+	}
+	return id
+}
+
+func isYikeIDRune(r rune) bool {
+	return r >= '0' && r <= '9' ||
+		r >= 'a' && r <= 'z' ||
+		r >= 'A' && r <= 'Z' ||
+		r == '-' || r == '_'
+}
+
+// isYikeIDSeparator 是 mediaId 与其值之间允许出现的字符。
+// 中英文引号都认 —— ScrubUpstreamText 与上游本地化都可能换引号形态。
+func isYikeIDSeparator(r rune) bool {
+	switch r {
+	case ' ', '\t', ':', '=', '"', '\'', '“', '”', '‘', '’', '「', '」':
+		return true
+	}
+	return false
 }

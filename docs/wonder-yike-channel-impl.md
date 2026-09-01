@@ -93,14 +93,16 @@
 
 配的是**按次价格**（`ModelPrice`），**不要**配成 token 倍率。
 
-原因是一个已经在 `doubao-seedance-2.0` 上造成超收的坑：`RecalculateTaskQuotaByTokens`
-（`service/task_billing.go:296`）在按 token 结算时**同样会乘 `otherMultiplier`**，而上游
-返回的 token 数本身就已经随时长和分辨率缩放了（实测 5 秒 720P ≈ 108,900 token，
-15 秒 ≈ 324,900）。两者相乘等于把时长算两遍，15 秒的任务会被收 3 倍。
+按次路径与 token 路径的乘数处理不同，混用会算错。
+
+背景：`doubao-seedance-2.0` 曾因此超收 3 倍 —— 按 token 结算时又乘了一次 `seconds`
+倍率，而上游返回的 token 数本身就随时长增长（实测 5 秒 720P ≈ 108,900，15 秒 ≈ 324,900）。
+现已修复：`tokenSettlementMultiplier` 会跳过 token 数已体现的维度（当前是 `seconds`），
+`video_input` 这类上游折扣仍然保留。
 
 万象一刻走按次价格路径，`EstimateBilling` 的乘数只在提交时应用一次，且上游不返回
-token（差额由 credit 结算），因此不受这个坑影响。但如果有人把这 7 个模型配成倍率而不是
-按次价格，就会踩进同一个双重计算。
+token，因此从来不受影响。但把这 7 个模型配成倍率仍然不对 —— 那条路径的语义是
+"量纲由 token 承担"，而万象一刻根本没有 token。
 
 ### 预扣
 

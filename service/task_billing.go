@@ -123,6 +123,11 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 		other["model_price"] = bc.ModelPrice
 		if bc.ModelRatio > 0 {
 			other["model_ratio"] = bc.ModelRatio
+			// 前端按 modelRatio × 2.0 × completionRatio 算「输出价格」。
+			// 这个键缺失时 undefined 参与乘法，整条结果变成 NaN，
+			// 客户账单上会直接看到「输出价格 ¥NaN / 1M tokens」。
+			// 视频任务没有独立的输出定价，取配置值（默认 1）即可。
+			other["completion_ratio"] = ratio_setting.GetCompletionRatio(taskModelName(task))
 		}
 		other["group_ratio"] = bc.GroupRatio
 		if len(bc.OtherRatios) > 0 {
@@ -266,6 +271,49 @@ func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	})
 }
 
+// tokenDoubleCountedRatios 是**不能**参与 token 结算的附加倍率。
+//
+// 这些维度上游返回的 token 数里已经包含了，再乘一次就是把同一件事算两遍：
+//
+//	实测 doubao-seedance-2.0：5 秒 720P ≈ 108,900 token，15 秒 720P ≈ 324,900 token
+//	                          —— token 数随时长线性增长
+//
+// 而 seconds 倍率又是 ceil(秒数/5)，15 秒时为 3。两者相乘 = 收 3 倍。
+// 生产实测：一个 15 秒任务被收 ¥44.84，而按上游官价只应收 ¥14.95。
+//
+// 由两个实测点反解出的精确公式（5 秒 108,900 / 15 秒 324,900，两点分毫不差）：
+//
+//	tokens = 宽 × 高 × 24fps × 秒数 / 1024 + 900
+//
+// 公式里同时含**秒数**和**宽×高**，所以 seconds 和 size 都已经由 token 数承担，
+// 再乘一次就是重复计算。
+//
+// video_input 不在此列：它是上游给的折扣，不是内容量纲，token 数里不体现，必须保留。
+var tokenDoubleCountedRatios = map[string]bool{
+	"seconds": true,
+	"size":    true,
+}
+
+// tokenSettlementMultiplier 算出按 token 结算时该乘的附加倍率。
+//
+// 与提交时的预扣不同：预扣是按次估的，时长倍率在那里是**必要**的；
+// 到了 token 结算，量纲已经由 token 数承担，再乘就重复了。
+func tokenSettlementMultiplier(bc *model.TaskBillingContext) float64 {
+	multiplier := 1.0
+	if bc == nil {
+		return multiplier
+	}
+	for key, r := range bc.OtherRatios {
+		if tokenDoubleCountedRatios[key] {
+			continue
+		}
+		if r != 1.0 && r > 0 {
+			multiplier *= r
+		}
+	}
+	return multiplier
+}
+
 // RecalculateTaskQuotaByTokens 根据实际 token 消耗重新计费（异步差额结算）。
 // 当任务成功且返回了 totalTokens 时，根据模型倍率和分组倍率重新计算实际扣费额度，
 // 与预扣费的差额进行补扣或退还。支持钱包和订阅计费来源。
@@ -313,15 +361,8 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, usage T
 		finalGroupRatio = groupRatio
 	}
 
-	// 计算 OtherRatios 乘积（视频折扣、时长等）
-	otherMultiplier := 1.0
-	if bc := task.PrivateData.BillingContext; bc != nil {
-		for _, r := range bc.OtherRatios {
-			if r != 1.0 && r > 0 {
-				otherMultiplier *= r
-			}
-		}
-	}
+	// 计算 OtherRatios 乘积，但**跳过 token 数本身已经体现的那些**。
+	otherMultiplier := tokenSettlementMultiplier(task.PrivateData.BillingContext)
 
 	// 计算实际应扣费额度: totalTokens * modelRatio * groupRatio * otherMultiplier
 	actualQuota := int(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)

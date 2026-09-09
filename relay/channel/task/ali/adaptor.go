@@ -46,13 +46,16 @@ type AliVideoInput struct {
 
 // AliVideoParameters 视频参数
 type AliVideoParameters struct {
-	Resolution   string `json:"resolution,omitempty"`    // 分辨率: 480P/720P/1080P（图生视频、首尾帧生视频）
+	Resolution   string `json:"resolution,omitempty"`    // 分辨率: 480P/720P/1080P（图生视频、首尾帧生视频）；MiniMax 系列为 768P/1080P
 	Size         string `json:"size,omitempty"`          // 尺寸: 如 "832*480"（文生视频）
 	Duration     int    `json:"duration,omitempty"`      // 时长: 3-10秒
-	PromptExtend bool   `json:"prompt_extend,omitempty"` // 是否开启prompt智能改写
+	PromptExtend bool   `json:"prompt_extend,omitempty"` // 是否开启prompt智能改写（仅万相）
 	Watermark    bool   `json:"watermark,omitempty"`     // 是否添加水印
-	Audio        *bool  `json:"audio,omitempty"`         // 是否添加音频（wan2.5）
+	Audio        *bool  `json:"audio,omitempty"`         // 是否添加音频（wan2.5、百炼可灵）
 	Seed         int    `json:"seed,omitempty"`          // 随机数种子
+	Ratio        string `json:"ratio,omitempty"`         // 宽高比: 如 "16:9"（百炼 MiniMax 系列）
+	AspectRatio  string `json:"aspect_ratio,omitempty"`  // 宽高比: 如 "16:9"（百炼可灵系列）
+	Mode         string `json:"mode,omitempty"`          // 生成模式: std/pro（百炼可灵系列）
 }
 
 // AliVideoResponse 阿里通义万相响应
@@ -269,8 +272,33 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		},
 	}
 
+	isMiniMax := isBailianMiniMaxModel(upstreamModel)
+	isKling := isBailianKlingModel(upstreamModel)
+
 	// 处理分辨率映射
-	if req.Size != "" {
+	if isMiniMax || isKling {
+		// 百炼托管的三方模型（MiniMax/*、kling/*）：参数结构与万相不同，不走万相的默认值逻辑。
+		// MiniMax 用 ratio + resolution（768P/1080P），可灵用 aspect_ratio + mode，均不支持 prompt_extend。
+		aliReq.Parameters.PromptExtend = false // false 时 omitempty 不下发
+		if req.Size != "" {
+			if strings.Contains(req.Size, ":") {
+				// 形如 "16:9" 的宽高比
+				if isKling {
+					aliReq.Parameters.AspectRatio = req.Size
+				} else {
+					aliReq.Parameters.Ratio = req.Size
+				}
+			} else if isMiniMax {
+				aliReq.Parameters.Resolution = normalizeResolution(req.Size)
+			}
+			// 可灵不接受 resolution，非宽高比的 size 忽略
+		} else if isMiniMax {
+			aliReq.Parameters.Resolution = "768P" // MiniMax-H3 默认档位
+		}
+		if isKling && req.Mode != "" {
+			aliReq.Parameters.Mode = req.Mode // std / pro
+		}
+	} else if req.Size != "" {
 		// text to video size must be contained *
 		if strings.Contains(req.Model, "t2v") && !strings.Contains(req.Size, "*") {
 			return nil, fmt.Errorf("invalid size: %s, example: %s", req.Size, "1920*1080")
@@ -340,7 +368,31 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		return nil, errors.New("can't change model with metadata")
 	}
 
+	// MiniMax 系列只支持 768P/1080P：兼容习惯性传 720P 的客户端（含通过 metadata 传入的），自动上调为 768P
+	if isMiniMax && strings.EqualFold(aliReq.Parameters.Resolution, "720P") {
+		aliReq.Parameters.Resolution = "768P"
+	}
+
 	return aliReq, nil
+}
+
+// normalizeResolution 把 480p/720p/1080 之类的写法规整为 480P/720P/1080P
+func normalizeResolution(size string) string {
+	resolution := strings.ToUpper(size)
+	if !strings.HasSuffix(resolution, "P") {
+		resolution += "P"
+	}
+	return resolution
+}
+
+// isBailianMiniMaxModel 判断是否为百炼托管的 MiniMax 视频模型（如 MiniMax/MiniMax-H3）
+func isBailianMiniMaxModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(model), "minimax/")
+}
+
+// isBailianKlingModel 判断是否为百炼托管的可灵视频模型（如 kling/kling-v3-turbo-video-generation）
+func isBailianKlingModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(model), "kling/")
 }
 
 // EstimateBilling 根据用户请求参数计算 OtherRatios（时长、分辨率等）。

@@ -14,6 +14,8 @@ var ModelList = []string{
 	"seedance-1-0-pro-250528",
 	"doubao-seed-1-6-thinking-250715",
 	"seed-1-6-thinking-250715",
+	"dola-seedream-5-0-pro-260628", // BytePlus ModelArk 图像生成（Seedream 5.0 Pro）
+	"seed-audio-1.0",               // BytePlus Seed Speech 音频创作
 }
 
 var ChannelName = "volcengine"

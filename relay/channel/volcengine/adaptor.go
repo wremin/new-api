@@ -51,6 +51,11 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		return nil, errors.New("unsupported audio relay mode")
 	}
 
+	// Seed Speech（seed-audio 系列）走独立的同步 HTTP 接口，密钥不是 appid|token 格式
+	if isSeedAudioRelay(info) {
+		return convertSeedSpeechRequest(c, info, request)
+	}
+
 	appID, token, err := parseVolcengineAuth(info.ApiKey)
 	if err != nil {
 		return nil, err
@@ -274,6 +279,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		case constant.RelayModeResponses:
 			return fmt.Sprintf("%s/api/v3/responses", baseUrl), nil
 		case constant.RelayModeAudioSpeech:
+			if isSeedAudioRelay(info) {
+				return seedSpeechRequestURL(baseUrl), nil
+			}
 			if baseUrl == channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine] {
 				return "wss://openspeech.bytedance.com/api/v1/tts/ws_binary", nil
 			}
@@ -288,6 +296,14 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	channel.SetupApiRequestHeader(info, c, req)
 
 	if info.RelayMode == constant.RelayModeAudioSpeech {
+		if isSeedAudioRelay(info) {
+			// Seed Speech 鉴权：X-Api-Key + 请求追踪 ID
+			req.Set("X-Api-Key", info.ApiKey)
+			req.Set("X-Api-Request-Id", generateRequestID())
+			req.Set("Content-Type", "application/json")
+			req.Del("Authorization")
+			return nil
+		}
 		parts := strings.Split(info.ApiKey, "|")
 		if len(parts) == 2 {
 			req.Set("Authorization", "Bearer;"+parts[1])
@@ -354,6 +370,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 
 	if info.RelayMode == constant.RelayModeAudioSpeech {
+		if isSeedAudioRelay(info) {
+			return handleSeedSpeechResponse(c, resp, info)
+		}
 		encoding := mapEncoding(c.GetString(contextKeyResponseFormat))
 		if info.IsStream {
 			volcRequestInterface, exists := c.Get(contextKeyTTSRequest)

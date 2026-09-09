@@ -37,6 +37,18 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	}
 	other := make(map[string]interface{})
 	other["is_task"] = true
+	// task_id 让这条扣费能对回具体的任务。
+	//
+	// 缺了它，按次计费的渠道就没有任何一条日志带得上任务号 ——
+	// 那类任务在完成时直接跳过差额结算（settleTaskBillingOnComplete 第 0 步），
+	// 而差额结算日志是过去唯一写 task_id 的地方。
+	// 结果是客户拿一条视频来问扣费，使用日志里找不到对应的行。
+	//
+	// 此刻 PublicTaskID 已经有值：适配器正是拿它构造返回给客户的 task_xxx，
+	// 也是 model.InitTask 之后用作任务主键的那个值，两边天然对得上。
+	if info.TaskRelayInfo != nil && info.PublicTaskID != "" {
+		other["task_id"] = info.PublicTaskID
+	}
 	other["request_path"] = c.Request.URL.Path
 	other["model_price"] = info.PriceData.ModelPrice
 	if info.PriceData.ModelRatio > 0 {

@@ -36,6 +36,7 @@ import {
   renderAudioModelPrice,
   renderClaudeModelPrice,
   renderModelPrice,
+  renderTaskPerCallBillingProcess,
   renderTaskBillingProcess,
 } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
@@ -507,6 +508,10 @@ export const useLogsData = () => {
           const isTaskLog = other?.is_task === true || other?.task_id != null;
           if (isTaskLog && other?.model_price === -1) {
             content = renderTaskBillingProcess(other, logs[i].content);
+          } else if (isTaskLog && other?.model_price > 0) {
+            // 按次计费的任务额度里还乘了时长、分辨率等倍率，
+            // 通用的按次分支只乘分组倍率，会把 ¥15 解释成 ¥5。
+            content = renderTaskPerCallBillingProcess(other, logs[i].content);
           } else if (other?.ws || other?.audio) {
             content = renderAudioModelPrice(
               other?.text_input,

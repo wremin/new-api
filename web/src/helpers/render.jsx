@@ -1626,6 +1626,77 @@ function renderPriceSimpleCore({
   return result;
 }
 
+// TASK_RATIO_LABELS 把倍率键名换成人看得懂的说法。
+//
+// 键名由各个任务适配器自定义（seconds / size / video_input / n …），
+// 没有集中登记的地方，所以这里只美化已知项，认不出就原样显示键名 ——
+// 显示一个英文键名不好看，但比悄悄漏掉一个乘数好得多。
+const TASK_RATIO_LABELS = {
+  seconds: '时长',
+  size: '分辨率',
+  video_input: '视频输入',
+  n: '数量',
+};
+
+// parseTaskExtraRatios 从日志正文里取出计算参数。
+//
+// 服务端写这条日志时把所有不等于 1 的倍率拼成
+// "操作 generate, 计算参数：seconds: 3.00, size: 1.50"，
+// 这是唯一把倍率名与值列全了的地方。
+//
+// 为什么不读 other：倍率在 other 里是平铺的，键名又由适配器自定义，
+// 和 image / n 这类既有字段同处一层，前端无从分辨哪些是倍率。
+// 正文的格式由服务端固定生成、不走 i18n，反而是更稳的来源。
+export function parseTaskExtraRatios(content) {
+  if (!content || content.indexOf('计算参数') === -1) return [];
+  const tail = content.slice(content.indexOf('计算参数'));
+  const re = /([A-Za-z_][A-Za-z0-9_]*)\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)/g;
+  const out = [];
+  let m;
+  while ((m = re.exec(tail)) !== null) {
+    const ratio = parseFloat(m[2]);
+    if (Number.isFinite(ratio) && ratio !== 1) out.push([m[1], ratio]);
+  }
+  return out;
+}
+
+// renderTaskPerCallBillingProcess 渲染按次计费任务的计费过程。
+//
+// 不能复用 renderModelPrice 的按次分支：那个分支只乘分组倍率，
+// 而按次任务的额度在提交时还乘了时长、分辨率这些倍率
+// （relay_task.go 第 6 步）。一个 15 秒任务因此会显示 ¥5、实扣 ¥15——
+// 金额是对的，解释差了 3 倍，客户第一反应是被多收了。
+export function renderTaskPerCallBillingProcess(other, content) {
+  const { ratio: groupRatio, label: ratioLabel } = getEffectiveRatio(
+    other?.group_ratio,
+    other?.user_group_ratio,
+  );
+  const { symbol, rate } = getCurrencyConfig();
+  const modelPrice = other?.model_price;
+
+  let total = modelPrice * groupRatio;
+  const factors = [`${ratioLabel} ${groupRatio}`];
+  parseTaskExtraRatios(content).forEach(([key, ratio]) => {
+    total *= ratio;
+    const label = TASK_RATIO_LABELS[key];
+    factors.push(`${label ? i18next.t(label) : key} ${ratio}`);
+  });
+
+  return renderBillingArticle([
+    buildBillingPriceText('按次：{{symbol}}{{price}}', {
+      symbol,
+      usdAmount: modelPrice,
+      rate,
+    }),
+    buildBillingText('按次 {{symbol}}{{price}} * {{factors}} = {{symbol}}{{total}}', {
+      symbol,
+      price: formatBillingDisplayPrice(modelPrice, rate),
+      factors: factors.join(' * '),
+      total: formatBillingDisplayPrice(total, rate),
+    }),
+  ]);
+}
+
 export function renderTaskBillingProcess(other, content) {
   if (other?.task_id != null) {
     return renderBillingArticle([content].filter(Boolean), {

@@ -85,6 +85,18 @@ const TaskLogsFilters = ({
               size='small'
             />
           )}
+
+          {/* 用户名 - 仅管理员可见 */}
+          {isAdminUser && (
+            <Form.Input
+              field='username'
+              prefix={<IconSearch />}
+              placeholder={t('用户名')}
+              showClear
+              pure
+              size='small'
+            />
+          )}
         </div>
 
         {/* 操作按钮区域 */}

@@ -33,6 +33,19 @@ func GetAllTask(c *gin.Context) {
 		StartTimestamp: startTimestamp,
 		EndTimestamp:   endTimestamp,
 		ChannelID:      c.Query("channel_id"),
+		UserID:         c.Query("user_id"),
+	}
+
+	// 按用户名筛选：解析成用户 ID；用户不存在时直接返回空结果
+	if username := c.Query("username"); username != "" {
+		userId, err := model.GetUserIdByUsername(username)
+		if err != nil {
+			pageInfo.SetTotal(0)
+			pageInfo.SetItems([]*dto.TaskDto{})
+			common.ApiSuccess(c, pageInfo)
+			return
+		}
+		queryParams.UserID = strconv.Itoa(userId)
 	}
 
 	items := model.TaskGetAllTasks(pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)

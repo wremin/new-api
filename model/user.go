@@ -304,6 +304,16 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+// GetUserIdByUsername 按用户名精确查找用户 ID（任务日志等管理端按用户筛选用）
+func GetUserIdByUsername(username string) (int, error) {
+	if username == "" {
+		return 0, errors.New("username 为空！")
+	}
+	var user User
+	err := DB.Select("id").First(&user, "username = ?", username).Error
+	return user.Id, err
+}
+
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
 		return 0, errors.New("affCode 为空！")

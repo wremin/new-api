@@ -196,6 +196,26 @@ func sizeToResolution(size string) (string, error) {
 func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) {
 	otherRatios := make(map[string]float64)
 	aliRatios := map[string]map[string]float64{
+		// 百炼托管三方模型的分辨率差价（基准档倍率为 1，按次价格按基准档配置）：
+		// MiniMax-H3 官方 768P $0.08/s、高分辨率档 $0.13/s → 1.625
+		"MiniMax/MiniMax-H3": {
+			"768P":  1,
+			"1080P": 0.13 / 0.08,
+			"2K":    0.13 / 0.08,
+		},
+		// 可灵官方 720P ¥0.8/s、1080P ¥1/s → 1.25（v3 系列按同比例）
+		"kling/kling-v3-turbo-video-generation": {
+			"720P":  1,
+			"1080P": 1.25,
+		},
+		"kling/kling-v3-video-generation": {
+			"720P":  1,
+			"1080P": 1.25,
+		},
+		"kling/kling-v3-omni-video-generation": {
+			"720P":  1,
+			"1080P": 1.25,
+		},
 		"wan2.6-i2v": {
 			"720P":  1,
 			"1080P": 1 / 0.6,
@@ -288,10 +308,10 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 				} else {
 					aliReq.Parameters.Ratio = req.Size
 				}
-			} else if isMiniMax {
+			} else {
+				// 720p/768p/1080p 档位：MiniMax 与百炼可灵（720P/1080P 两档）都支持
 				aliReq.Parameters.Resolution = normalizeResolution(req.Size)
 			}
-			// 可灵不接受 resolution，非宽高比的 size 忽略
 		} else if isMiniMax {
 			aliReq.Parameters.Resolution = "768P" // MiniMax-H3 默认档位
 		}

@@ -16,11 +16,14 @@ package volcengine
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,10 +71,29 @@ type SeedSpeechRequest struct {
 }
 
 type SeedSpeechResponse struct {
-	Code    *int   `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
-	Audio   string `json:"audio,omitempty"` // base64 音频
-	URL     string `json:"url,omitempty"`   // 临时下载地址（约 2 小时有效）
+	Code     *int            `json:"code,omitempty"`
+	Message  string          `json:"message,omitempty"`
+	Audio    string          `json:"audio,omitempty"`    // base64 音频
+	URL      string          `json:"url,omitempty"`      // 临时下载地址（约 2 小时有效）
+	Duration json.RawMessage `json:"duration,omitempty"` // 输出音频时长（秒），数字或字符串
+}
+
+// parseSeedSpeechDuration 容错解析响应里的 duration（可能是数字或带引号的字符串），失败返回 0
+func parseSeedSpeechDuration(raw json.RawMessage) float64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	var f float64
+	if err := common.Unmarshal(raw, &f); err == nil {
+		return f
+	}
+	var s string
+	if err := common.Unmarshal(raw, &s); err == nil {
+		if v, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
+			return v
+		}
+	}
+	return 0
 }
 
 func seedSpeechCodeOK(code *int) bool {
@@ -206,6 +228,15 @@ func handleSeedSpeechResponse(c *gin.Context, resp *http.Response, info *relayco
 			types.ErrorCodeBadResponseBody,
 			http.StatusBadGateway,
 		)
+	}
+
+	// 按输出音频时长计费：按次模式下，「按次价格」按“每秒单价”配置，
+	// 实扣 = 每秒单价 × ceil(输出时长秒数) × 分组倍率，与上游按时长收费（$0.15/分钟）线性对应。
+	// duration 缺失或为 0 时不放大，按基础单价扣（即 1 秒）。
+	if info.PriceData.UsePrice {
+		if seconds := parseSeedSpeechDuration(seedResp.Duration); seconds > 0 {
+			info.PriceData.ModelPrice *= math.Ceil(seconds)
+		}
 	}
 
 	contentType := getContentTypeByEncoding(c.GetString(contextKeyResponseFormat))
